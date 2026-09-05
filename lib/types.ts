@@ -52,3 +52,17 @@ export interface UserProfile {
   displayName: string | null;
   photoURL: string | null;
 }
+
+export interface SilentGuideSuggestion {
+  category: 'historical_pivot' | 'mood_curveball' | 'zero_pressure_dump' | 'physical_grounding' | 'sensory_anchor' | 'perspective_shift' | string;
+  label: string;
+  badge: string;
+  prompt: string;
+  rationale?: string;
+}
+
+export interface SilentGuideResponse {
+  detectedTone?: string;
+  cognitiveState?: string;
+  suggestions: SilentGuideSuggestion[];
+}

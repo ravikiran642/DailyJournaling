@@ -363,6 +363,7 @@ export function JournalDashboard() {
                 onDirtyChange={setIsEditorDirty}
                 externalPendingDate={pendingTargetDate}
                 onClearExternalPendingDate={() => setPendingTargetDate(null)}
+                allEntries={entries}
               />
             </main>
 

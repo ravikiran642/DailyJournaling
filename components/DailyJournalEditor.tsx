@@ -5,7 +5,7 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
 import Link from '@tiptap/extension-link';
-import { JournalEntry } from '@/lib/types';
+import { JournalEntry, SilentGuideSuggestion } from '@/lib/types';
 import { formatJournalDate, getLocalCalendarDate, addDaysToDate } from '@/lib/utils';
 import {
   Settings,
@@ -29,6 +29,7 @@ import {
   Save,
   AlertTriangle,
   Pencil,
+  RotateCw,
 } from 'lucide-react';
 
 interface DailyJournalEditorProps {
@@ -48,6 +49,7 @@ interface DailyJournalEditorProps {
   onDirtyChange?: (isDirty: boolean) => void;
   externalPendingDate?: string | null;
   onClearExternalPendingDate?: () => void;
+  allEntries?: JournalEntry[];
 }
 
 export function DailyJournalEditor({
@@ -65,6 +67,7 @@ export function DailyJournalEditor({
   onDirtyChange,
   externalPendingDate,
   onClearExternalPendingDate,
+  allEntries = [],
 }: DailyJournalEditorProps) {
   const formattedDate = formatJournalDate(journalDate);
   const [prevEntryNavKey, setPrevEntryNavKey] = useState(`${entry?.id || ''}_${journalDate}`);
@@ -94,6 +97,18 @@ export function DailyJournalEditor({
   // Unsaved changes date navigation confirmation state
   const [pendingDateChange, setPendingDateChange] = useState<string | null>(null);
 
+  // The Silent Guide State (State 1 & State 2)
+  const [isStalled, setIsStalled] = useState(false);
+  const [isStallMenuOpen, setIsStallMenuOpen] = useState(false);
+  const [cursorCoords, setCursorCoords] = useState<{ top: number; left: number } | null>(null);
+  const [dynamicSuggestions, setDynamicSuggestions] = useState<SilentGuideSuggestion[]>([]);
+  const [isGeneratingSuggestions, setIsGeneratingSuggestions] = useState(false);
+  const [suggestionTone, setSuggestionTone] = useState<string | null>(null);
+  const [lastAnalyzedText, setLastAnalyzedText] = useState('');
+  const stallTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const editorCanvasRef = useRef<HTMLDivElement | null>(null);
+  const stallMenuRef = useRef<HTMLDivElement | null>(null);
+
   // Sync dirty status with parent dashboard
   useEffect(() => {
     onDirtyChange?.(isDirty);
@@ -109,11 +124,18 @@ export function DailyJournalEditor({
     setManualTags(entry?.manualTags || entry?.tags || []);
     setCurrentTitle(entry?.title || formattedDate);
     setIsDirty(false);
+    setIsStalled(false);
+    setIsStallMenuOpen(false);
+    setDynamicSuggestions([]);
+    setSuggestionTone(null);
+    setLastAnalyzedText('');
   } else if (currentTagsServerKey !== prevTagsServerKey) {
     setPrevTagsServerKey(currentTagsServerKey);
     setCurrentTags(entry?.tags || []);
     setManualTags(entry?.manualTags || []);
   }
+
+  const triggerStallRef = useRef<() => void>(() => {});
 
   // TipTap Editor instance
   const editor = useEditor({
@@ -145,18 +167,249 @@ export function DailyJournalEditor({
             ? 'text-[1.125rem]'
             : 'text-xl'
         }`,
-        'data-placeholder': 'Start writing your thoughts...',
+        'data-placeholder': 'You can dump anything here. No structure, no pressure.',
+      },
+      handleKeyDown: () => {
+        // Typing instantly forces stall icon & micro-menu to vanish
+        setIsStalled(false);
+        setIsStallMenuOpen(false);
+        if (stallTimerRef.current) {
+          clearTimeout(stallTimerRef.current);
+        }
+        stallTimerRef.current = setTimeout(() => {
+          triggerStallRef.current();
+        }, 45000);
+        return false;
       },
     },
     immediatelyRender: false,
     onUpdate: () => {
       setIsDirty(true);
+      setIsStalled(false);
+      setIsStallMenuOpen(false);
+      if (stallTimerRef.current) {
+        clearTimeout(stallTimerRef.current);
+      }
+      stallTimerRef.current = setTimeout(() => {
+        triggerStallRef.current();
+      }, 45000);
     },
   });
 
-  // Calculate live word count
+  // Calculate live word count and empty state
   const editorText = editor?.getText() || '';
   const wordCount = editorText.trim() ? editorText.trim().split(/\s+/).length : 0;
+  const isCanvasEmpty = !editorText.trim();
+
+  // Update cursor position directly below cursor line
+  const updateCursorCoords = useCallback(() => {
+    if (!editor || !editorCanvasRef.current) return;
+
+    try {
+      const { view } = editor;
+      const { selection } = view.state;
+      const coords = view.coordsAtPos(selection.from);
+      const containerRect = editorCanvasRef.current.getBoundingClientRect();
+
+      const relTop = coords.bottom - containerRect.top + 8;
+      const maxLeft = Math.max(12, containerRect.width - 340);
+      const relLeft = Math.max(12, Math.min(coords.left - containerRect.left, maxLeft));
+
+      setCursorCoords({
+        top: Math.max(20, relTop),
+        left: relLeft,
+      });
+    } catch {
+      setCursorCoords(null);
+    }
+  }, [editor]);
+
+  // Extracts the trailing sentence/clause before the user stalled
+  const extractLastSentence = (text: string): string => {
+    if (!text) return '';
+    const trimmed = text.trim();
+    const sentences = trimmed.split(/(?<=[.?!;:\n])\s+/);
+    if (sentences.length > 0) {
+      const last = sentences[sentences.length - 1];
+      return last.trim() || trimmed.slice(-140);
+    }
+    return trimmed.slice(-140);
+  };
+
+  // Real-time Contextual AI Generation for The Silent Guide
+  const fetchDynamicSuggestions = useCallback(
+    async (textToAnalyze: string, force = false) => {
+      const trimmed = textToAnalyze.trim();
+      if (!trimmed) return;
+
+      if (!force && lastAnalyzedText === trimmed && dynamicSuggestions.length > 0) {
+        return;
+      }
+
+      setLastAnalyzedText(trimmed);
+      setIsGeneratingSuggestions(true);
+
+      try {
+        const lastSentence = extractLastSentence(trimmed);
+        const historicalPayload = (allEntries || []).slice(0, 8).map((e) => ({
+          id: e.id,
+          title: e.title,
+          journalDate: e.journalDate,
+          date: e.createdAt ? e.createdAt.split('T')[0] : undefined,
+          summary: e.summary,
+          tags: e.tags,
+          keyInsights: e.keyInsights,
+          initialPrompt: e.initialPrompt,
+        }));
+
+        const res = await fetch('/api/gemini/silent-guide', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            currentText: trimmed,
+            lastSentence,
+            journalDate,
+            historicalEntries: historicalPayload,
+          }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.suggestions) && data.suggestions.length > 0) {
+            setDynamicSuggestions(data.suggestions);
+            setSuggestionTone(data.detectedTone || null);
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to fetch dynamic suggestions:', err);
+      } finally {
+        setIsGeneratingSuggestions(false);
+      }
+    },
+    [allEntries, dynamicSuggestions.length, journalDate, lastAnalyzedText]
+  );
+
+  // Trigger stall state and pre-warm dynamic contextual suggestions
+  const triggerStall = useCallback(() => {
+    if (!editor) return;
+    const currentText = editor.getText() || '';
+    if (!currentText.trim()) return;
+
+    updateCursorCoords();
+    setIsStalled(true);
+
+    // Asynchronously fetch contextual suggestions on stall event
+    fetchDynamicSuggestions(currentText);
+  }, [editor, updateCursorCoords, fetchDynamicSuggestions]);
+
+  useEffect(() => {
+    triggerStallRef.current = triggerStall;
+  }, [triggerStall]);
+
+  // Clean up idle timer on unmount
+  useEffect(() => {
+    return () => {
+      if (stallTimerRef.current) {
+        clearTimeout(stallTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Dismiss floating micro-menu on outside click
+  useEffect(() => {
+    const handleDocumentClick = (e: MouseEvent) => {
+      if (
+        stallMenuRef.current &&
+        !stallMenuRef.current.contains(e.target as Node)
+      ) {
+        setIsStallMenuOpen(false);
+      }
+    };
+    if (isStallMenuOpen) {
+      document.addEventListener('mousedown', handleDocumentClick);
+      return () => document.removeEventListener('mousedown', handleDocumentClick);
+    }
+  }, [isStallMenuOpen]);
+
+  // The Silent Guide: Fallback suggestions if AI response is loading or offline
+  const yesterdayDateStr = addDaysToDate(journalDate, -1);
+  const previousEntry = (allEntries || []).find((e) => {
+    const eDate = e.journalDate || (e.createdAt ? e.createdAt.split('T')[0] : '');
+    return eDate === yesterdayDateStr || (eDate && eDate < journalDate);
+  });
+  const prevDate = previousEntry?.journalDate || (previousEntry?.createdAt ? previousEntry.createdAt.split('T')[0] : '');
+  const historicalSuggestion =
+    previousEntry?.title && (!prevDate || previousEntry.title !== formatJournalDate(prevDate))
+      ? `Let's pivot and write about that funny thing Jelia did yesterday to break the tension, or revisit "${previousEntry.title}".`
+      : "Let's pivot and write about that funny thing Jelia did yesterday to break the tension.";
+
+  const curveballSuggestion =
+    "Curveball: Close your eyes for 3 seconds. What's the weirdest sound you hear right now, or what is one thing you really want to eat tonight?";
+
+  const lastTypedSnippet = extractLastSentence(editor?.getText() || '');
+  const dumpSuggestion = lastTypedSnippet
+    ? `Finish this without filtering: 'What I really wanted to say after "${lastTypedSnippet.slice(0, 50)}..." is...'`
+    : "Write one raw, unedited sentence about what is actually stalling your train of thought right now.";
+
+  const defaultFallbackSuggestions: SilentGuideSuggestion[] = [
+    {
+      category: 'historical_pivot',
+      label: 'Historically-Linked Pivot',
+      badge: 'Past Echo',
+      prompt: historicalSuggestion,
+      rationale: 'Reconnects present thought with prior memory.',
+    },
+    {
+      category: 'mood_curveball',
+      label: 'Mood-Shifting Curveball',
+      badge: 'Disrupt Loop',
+      prompt: curveballSuggestion,
+      rationale: 'Shatters cognitive loops with unexpected sensory shift.',
+    },
+    {
+      category: 'zero_pressure_dump',
+      label: 'Zero-Pressure Dump',
+      badge: 'Raw Stream',
+      prompt: dumpSuggestion,
+      rationale: 'Permits completely unfiltered, unstructured output.',
+    },
+  ];
+
+  const displayedSuggestions: SilentGuideSuggestion[] =
+    dynamicSuggestions.length > 0 ? dynamicSuggestions : defaultFallbackSuggestions;
+
+  const getBadgeStyle = (category?: string) => {
+    switch (category) {
+      case 'historical_pivot':
+        return 'text-[#4E6852] font-semibold';
+      case 'mood_curveball':
+        return 'text-amber-800/85 font-semibold';
+      case 'zero_pressure_dump':
+        return 'text-[#626860] font-semibold';
+      case 'physical_grounding':
+        return 'text-teal-800/85 font-semibold';
+      case 'sensory_anchor':
+        return 'text-sky-800/85 font-semibold';
+      case 'perspective_shift':
+        return 'text-indigo-800/85 font-semibold';
+      default:
+        return 'text-[#6F8273] font-semibold';
+    }
+  };
+
+  const handleInsertPrompt = useCallback((promptText: string) => {
+    if (!editor) return;
+    editor
+      .chain()
+      .focus()
+      .insertContent(`<p><em>${promptText}</em></p><p></p>`)
+      .run();
+    setIsStalled(false);
+    setIsStallMenuOpen(false);
+    setIsDirty(true);
+  }, [editor]);
 
   // Keep editor content in sync when loaded entry changes
   useEffect(() => {
@@ -741,8 +994,158 @@ export function DailyJournalEditor({
         )}
 
         {/* Sacred Core Writing Canvas */}
-        <div className="flex-1 min-h-[500px]">
+        <div ref={editorCanvasRef} className="flex-1 min-h-[500px] relative">
+          {/* STATE 1: THE EMPTY CANVAS ONBOARDING - The Silent Guide */}
+          {isCanvasEmpty && (
+            <div
+              id="silent-guide-empty-canvas"
+              className="absolute top-0 left-0 pt-0.5 pointer-events-none select-none text-[#8A9086]/55 font-serif italic text-base sm:text-lg leading-relaxed transition-opacity duration-200"
+            >
+              You can dump anything here. No structure, no pressure.
+            </div>
+          )}
+
           <EditorContent editor={editor} />
+
+          {/* STATE 2: THE MID-WRITE STALL (45-SECOND IDLE STATE) - The Silent Guide */}
+          {isStalled && !isCanvasEmpty && (
+            <div
+              id="silent-guide-stall-container"
+              ref={stallMenuRef}
+              className="absolute z-20 select-none transition-all duration-700 ease-out"
+              style={
+                cursorCoords
+                  ? { top: `${cursorCoords.top}px`, left: `${cursorCoords.left}px` }
+                  : { bottom: '28px', left: '16px' }
+              }
+            >
+              {/* Ultra-faint (20% opacity) minimalist icon just below cursor line */}
+              <button
+                id="btn-silent-guide-sparkle"
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const nextOpen = !isStallMenuOpen;
+                  setIsStallMenuOpen(nextOpen);
+                  if (nextOpen && dynamicSuggestions.length === 0 && editor) {
+                    fetchDynamicSuggestions(editor.getText() || '');
+                  }
+                }}
+                title="The Silent Guide: Click for friendly momentum recommendations"
+                className={`p-1.5 rounded-full cursor-pointer transition-all duration-500 ${
+                  isStallMenuOpen
+                    ? 'opacity-100 bg-[#2F4133] text-white shadow-md scale-105'
+                    : 'opacity-20 hover:opacity-85 text-[#4E544B] hover:text-[#1A1C18] hover:bg-[#EAE7DF] hover:scale-110'
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+              </button>
+
+              {/* Floating Micro-Menu (Completely un-bordered) */}
+              {isStallMenuOpen && (
+                <div
+                  id="silent-guide-micro-menu"
+                  onClick={(e) => e.stopPropagation()}
+                  className="mt-2 w-[320px] sm:w-[380px] max-w-[calc(100vw-3rem)] bg-[#FAF8F5]/98 text-[#252723] rounded-2xl shadow-2xl p-4 border-0 border-none ring-0 space-y-3 backdrop-blur-md animate-in fade-in zoom-in-95 duration-200 text-left select-text"
+                >
+                  <div className="flex items-center justify-between pb-1 border-b border-[#EAE7DF]/70">
+                    <div className="flex items-center gap-1.5 text-[11px] font-medium tracking-wide uppercase text-[#6F746C]">
+                      <Sparkles className="w-3 h-3 text-[#506A55]" />
+                      <span>The Silent Guide</span>
+                      {suggestionTone && (
+                        <span className="text-[9px] lowercase font-normal px-1.5 py-0.5 rounded-full bg-[#EAE7DF]/70 text-[#545A50] tracking-normal">
+                          {suggestionTone}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          fetchDynamicSuggestions(editor?.getText() || '', true);
+                        }}
+                        disabled={isGeneratingSuggestions}
+                        className="text-[#9BA098] hover:text-[#252723] p-1 rounded-md hover:bg-[#EAE7DF]/50 cursor-pointer transition-colors"
+                        title="Refresh dynamic sparks"
+                      >
+                        <RotateCw
+                          className={`w-3 h-3 ${
+                            isGeneratingSuggestions ? 'animate-spin text-[#506A55]' : ''
+                          }`}
+                        />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsStallMenuOpen(false)}
+                        className="text-[#9BA098] hover:text-[#252723] p-1 rounded-md hover:bg-[#EAE7DF]/50 cursor-pointer transition-colors"
+                        title="Dismiss guide"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-[#6F746C] leading-snug">
+                    {isGeneratingSuggestions && dynamicSuggestions.length === 0
+                      ? 'Sensing your writing flow and reading historical context...'
+                      : 'Stalled on thoughts? Pick a friendly spark tailored to your immediate flow:'}
+                  </p>
+
+                  {isGeneratingSuggestions && dynamicSuggestions.length === 0 ? (
+                    <div className="py-6 flex flex-col items-center justify-center text-center space-y-2 text-[#6F746C]">
+                      <Sparkles className="w-5 h-5 animate-spin text-[#506A55]" />
+                      <p className="text-xs font-serif italic text-[#3C4238]">
+                        The Silent Guide is sensing your momentum...
+                      </p>
+                      <span className="text-[10px] text-[#8F948C]">
+                        Reading tone and previous journal echoes
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="space-y-2 pt-0.5">
+                      {displayedSuggestions.map((item, idx) => (
+                        <button
+                          key={`${item.category}-${idx}`}
+                          type="button"
+                          onClick={() => handleInsertPrompt(item.prompt)}
+                          className="w-full text-left p-2.5 rounded-xl bg-white/85 hover:bg-white text-xs text-[#252723] transition-all hover:shadow-xs group cursor-pointer border border-[#EAE7DF]/40 hover:border-[#D5D0C5]"
+                        >
+                          <div className="flex items-center justify-between text-[10px] uppercase font-medium tracking-wider mb-1">
+                            <span className={getBadgeStyle(item.category)}>
+                              {item.label || item.badge}
+                            </span>
+                            <span className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] text-[#2F4133] font-medium">
+                              Insert ↵
+                            </span>
+                          </div>
+                          <p className="font-serif italic text-[13px] text-[#2B3028] leading-relaxed">
+                            &ldquo;{item.prompt}&rdquo;
+                          </p>
+                          {item.rationale && (
+                            <p className="mt-1 text-[9px] text-[#8A9086] line-clamp-1 italic">
+                              {item.rationale}
+                            </p>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between pt-1 text-[10px] text-[#8F948C]">
+                    <span>Tip: Simply typing closes this instantly.</span>
+                    <button
+                      type="button"
+                      onClick={() => setIsStallMenuOpen(false)}
+                      className="hover:text-[#252723] underline cursor-pointer"
+                    >
+                      Resume Writing
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Faint Word Count Footnote (Non-intrusive) */}
