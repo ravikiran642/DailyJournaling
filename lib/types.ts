@@ -37,6 +37,7 @@ export interface JournalEntry {
   keyInsights?: string[];
   observations?: string[]; // Emotional/contextual observations grounded strictly in text
   tags: string[];
+  manualTags?: string[]; // Tags manually created/flagged by the user that must not be overwritten during AI synthesis
   messages?: ChatMessage[];
   createdAt: string;
   updatedAt: string;

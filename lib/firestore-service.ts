@@ -110,6 +110,7 @@ export async function saveOrUpdateDailyJournal(
     keyInsights?: string[];
     observations?: string[];
     tags?: string[];
+    manualTags?: string[];
   }
 ): Promise<JournalEntry> {
   if (!userId) {
@@ -142,6 +143,7 @@ export async function saveOrUpdateDailyJournal(
       ...(data.keyInsights !== undefined ? { keyInsights: data.keyInsights } : {}),
       ...(data.observations !== undefined ? { observations: data.observations } : {}),
       ...(data.tags !== undefined ? { tags: data.tags } : {}),
+      ...(data.manualTags !== undefined ? { manualTags: data.manualTags } : {}),
     };
 
     await updateDoc(docRef, sanitizePayload(updates));
@@ -162,6 +164,7 @@ export async function saveOrUpdateDailyJournal(
       keyInsights: data.keyInsights || [],
       observations: data.observations || [],
       tags: data.tags && data.tags.length > 0 ? data.tags : ['Daily'],
+      manualTags: data.manualTags || [],
       messages: [],
       createdAt: now,
       updatedAt: now,

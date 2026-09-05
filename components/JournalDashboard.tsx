@@ -94,10 +94,12 @@ export function JournalDashboard() {
     title,
     content,
     tags,
+    manualTags,
   }: {
     title: string;
     content: string;
     tags?: string[];
+    manualTags?: string[];
   }) => {
     if (!user?.uid) return;
 
@@ -110,6 +112,7 @@ export function JournalDashboard() {
         content,
         title,
         tags: tags || dailyEntry?.tags || [],
+        manualTags: manualTags !== undefined ? manualTags : dailyEntry?.manualTags || [],
       });
 
       setLastDailySavedAt(new Date());
@@ -128,10 +131,12 @@ export function JournalDashboard() {
     title,
     content,
     tags,
+    manualTags,
   }: {
     title: string;
     content: string;
     tags?: string[];
+    manualTags?: string[];
   }) => {
     if (!user?.uid) return;
 
@@ -145,6 +150,7 @@ export function JournalDashboard() {
         content,
         title,
         tags: tags || dailyEntry?.tags || [],
+        manualTags: manualTags !== undefined ? manualTags : dailyEntry?.manualTags || [],
       });
 
       setLastDailySavedAt(new Date());
@@ -189,12 +195,28 @@ export function JournalDashboard() {
       }
 
       const data = await res.json();
+
+      // Preserve all manually added tags and existing tags, append generated tags without overwriting
+      const currentTags = entryToSynthesize.tags || [];
+      const currentManualTags = entryToSynthesize.manualTags || [];
+      const generatedTags: string[] = Array.isArray(data.tags) ? data.tags : [];
+
+      // Combine existing tags and append newly generated tags (case-insensitive deduplication)
+      const combinedTags = [...currentTags];
+      for (const genTag of generatedTags) {
+        const clean = genTag.trim().replace(/^#/, '');
+        if (clean && !combinedTags.some((t) => t.toLowerCase() === clean.toLowerCase())) {
+          combinedTags.push(clean);
+        }
+      }
+
       const updates: Partial<JournalEntry> = {
         synthesis: data.synthesis || '',
         summary: data.summary || '',
         keyInsights: data.keyInsights || [],
         observations: data.observations || [],
-        tags: data.tags || entryToSynthesize.tags || ['Daily'],
+        tags: combinedTags.length > 0 ? combinedTags : ['Daily'],
+        manualTags: currentManualTags,
       };
 
       await updateJournalEntry(user.uid, entryToSynthesize.id, updates);
