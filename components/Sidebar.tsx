@@ -11,7 +11,7 @@ import {
   ChevronRight,
   PanelLeftClose,
 } from 'lucide-react';
-import { formatJournalDate, getLocalCalendarDate, formatShortDate } from '@/lib/utils';
+import { formatJournalDate, getLocalCalendarDate, formatSidebarDate } from '@/lib/utils';
 
 interface SidebarProps {
   entries: JournalEntry[];
@@ -92,13 +92,13 @@ export function Sidebar({
       .map((d) => ({ dateStr: d, entry: datesMap.get(d) }))
       .filter(({ dateStr, entry }) => {
         const fullDate = formatJournalDate(dateStr).toLowerCase();
-        const shortDate = formatShortDate(dateStr).toLowerCase();
+        const sidebarDate = formatSidebarDate(dateStr, todayStr).toLowerCase();
         const title = entry?.title?.toLowerCase() || '';
         const plain = entry?.content?.replace(/<[^>]+>/g, ' ').toLowerCase() || '';
         const tags = entry?.tags?.join(' ').toLowerCase() || '';
         return (
           fullDate.includes(term) ||
-          shortDate.includes(term) ||
+          sidebarDate.includes(term) ||
           title.includes(term) ||
           plain.includes(term) ||
           tags.includes(term)
@@ -254,12 +254,8 @@ export function Sidebar({
                 entry && entry.id !== `placeholder-${dateStr}` && entry.content
               );
 
-              // Match wireframe date format:
-              // Selected date shows: "October 26, 2023"
-              // Others show: "Oct 25, 2023", etc.
-              const formattedDate = isSelected
-                ? formatJournalDate(dateStr)
-                : formatShortDate(dateStr);
+              // Consistent date format: "Today" for current day, "25-Oct-2026" for other dates
+              const formattedDate = formatSidebarDate(dateStr, todayStr);
 
               return (
                 <div

@@ -28,6 +28,7 @@ import {
   Type,
   Save,
   AlertTriangle,
+  Pencil,
 } from 'lucide-react';
 
 interface DailyJournalEditorProps {
@@ -66,8 +67,11 @@ export function DailyJournalEditor({
   onClearExternalPendingDate,
 }: DailyJournalEditorProps) {
   const formattedDate = formatJournalDate(journalDate);
-  const [prevEntryKey, setPrevEntryKey] = useState(`${entry?.id || ''}_${journalDate}`);
+  const [prevEntryKey, setPrevEntryKey] = useState(`${entry?.id || ''}_${journalDate}_${entry?.title || ''}`);
   const [isDirty, setIsDirty] = useState(false);
+
+  // Title state with fallback to expressed date format: e.g. "Saturday, September 5, 2026"
+  const [currentTitle, setCurrentTitle] = useState<string>(entry?.title || formattedDate);
 
   // Contextual Popovers (Contextual Utility Directive)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -91,10 +95,11 @@ export function DailyJournalEditor({
     onDirtyChange?.(isDirty);
   }, [isDirty, onDirtyChange]);
 
-  const currentEntryKey = `${entry?.id || ''}_${journalDate}`;
+  const currentEntryKey = `${entry?.id || ''}_${journalDate}_${entry?.title || ''}`;
   if (currentEntryKey !== prevEntryKey) {
     setPrevEntryKey(currentEntryKey);
     setCurrentTags(entry?.tags || []);
+    setCurrentTitle(entry?.title || formattedDate);
     setIsDirty(false);
   }
 
@@ -159,29 +164,31 @@ export function DailyJournalEditor({
     if (!editor || saveStatus === 'saving') return;
     const contentHtml = editor.getHTML();
     const saveFn = onSaveOnly || onSave;
+    const titleToSave = currentTitle.trim() || formattedDate;
     if (saveFn) {
       await saveFn({
-        title: formattedDate,
+        title: titleToSave,
         content: contentHtml,
         tags: currentTags,
       });
     }
     setIsDirty(false);
-  }, [editor, saveStatus, formattedDate, onSaveOnly, onSave, currentTags]);
+  }, [editor, saveStatus, currentTitle, formattedDate, onSaveOnly, onSave, currentTags]);
 
   // Handle Save and Synthesis (content + tags, then trigger synthesis)
   const handleSaveAndSynthesize = useCallback(async () => {
     if (!editor || saveStatus === 'saving' || isSynthesizing) return;
     const contentHtml = editor.getHTML();
+    const titleToSave = currentTitle.trim() || formattedDate;
     if (onSaveAndSynthesize) {
       await onSaveAndSynthesize({
-        title: formattedDate,
+        title: titleToSave,
         content: contentHtml,
         tags: currentTags,
       });
     }
     setIsDirty(false);
-  }, [editor, saveStatus, isSynthesizing, formattedDate, onSaveAndSynthesize, currentTags]);
+  }, [editor, saveStatus, isSynthesizing, currentTitle, formattedDate, onSaveAndSynthesize, currentTags]);
 
   // Target date requiring unsaved changes confirmation
   const targetDateToConfirm = pendingDateChange || externalPendingDate;
@@ -264,14 +271,31 @@ export function DailyJournalEditor({
       <div className="max-w-3xl w-full mx-auto px-6 sm:px-12 py-10 sm:py-16 flex-1 flex flex-col relative">
         {/* Entry Header: Date on left, Save Journal & Save and Synthesis buttons + utility icons on right */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 select-none border-b border-[#F0ECE1]">
-          <div>
-            <h1
-              id="journal-date-title"
-              className="text-2xl sm:text-3xl lg:text-4xl font-serif font-normal text-[#1A1C18] tracking-tight"
-            >
-              {formattedDate}
-            </h1>
-            <div className="flex items-center gap-2 mt-1 text-xs text-[#82887E]">
+          <div className="flex-1 min-w-0 mr-2">
+            <div className="group relative flex items-center">
+              <input
+                id="journal-title-input"
+                type="text"
+                value={currentTitle}
+                onChange={(e) => {
+                  setCurrentTitle(e.target.value);
+                  setIsDirty(true);
+                }}
+                onBlur={() => {
+                  if (!currentTitle.trim()) {
+                    setCurrentTitle(formattedDate);
+                  }
+                }}
+                placeholder={formattedDate}
+                className="w-full text-2xl sm:text-3xl lg:text-4xl font-serif font-normal text-[#1A1C18] tracking-tight bg-transparent border-b border-transparent hover:border-[#D5D0C5] focus:border-[#6F8273] focus:outline-none transition-colors py-0.5 rounded-xs"
+                title="Click to edit journal title"
+              />
+              <Pencil className="w-3.5 h-3.5 text-[#989E95] opacity-0 group-hover:opacity-60 transition-opacity ml-1 shrink-0 pointer-events-none hidden sm:inline-block" />
+            </div>
+            <div className="flex items-center flex-wrap gap-2 mt-1 text-xs text-[#82887E]">
+              {currentTitle !== formattedDate && (
+                <span className="font-medium text-[#656A61]">{formattedDate} •</span>
+              )}
               {saveStatus === 'saving' ? (
                 <span className="flex items-center gap-1 text-[#6F8273]">
                   <Loader2 className="w-3 h-3 animate-spin" /> Saving...
@@ -745,7 +769,7 @@ export function DailyJournalEditor({
             <div className="bg-[#FAF8F5] border border-[#EAE7DF] rounded-xl p-3 text-xs text-[#5A6057] space-y-1.5">
               <div className="flex items-center justify-between">
                 <span className="text-[#8F948C]">Current Entry:</span>
-                <span className="font-medium text-[#252723]">{formattedDate}</span>
+                <span className="font-medium text-[#252723]">{currentTitle || formattedDate}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-[#8F948C]">Destination Date:</span>

@@ -29,6 +29,36 @@ export function addDaysToDate(dateStr: string, days: number): string {
   return getLocalCalendarDate(date);
 }
 
+const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/**
+ * Returns a standardized sidebar display date:
+ * - Always "Today" for today's date
+ * - Standard "DD-MMM-YYYY" (e.g. "25-Oct-2026") for all other dates
+ */
+export function formatSidebarDate(dateStr?: string | null, todayStr?: string): string {
+  if (!dateStr) return "";
+  const today = todayStr || getLocalCalendarDate();
+  if (dateStr === today) return "Today";
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    const [year, month, day] = dateStr.split("-").map(Number);
+    const dayPadded = String(day).padStart(2, "0");
+    const monthShort = MONTHS_SHORT[month - 1] || "";
+    return `${dayPadded}-${monthShort}-${year}`;
+  }
+
+  const d = new Date(dateStr);
+  if (!isNaN(d.getTime())) {
+    const dayPadded = String(d.getDate()).padStart(2, "0");
+    const monthShort = MONTHS_SHORT[d.getMonth()] || "";
+    const year = d.getFullYear();
+    return `${dayPadded}-${monthShort}-${year}`;
+  }
+
+  return dateStr;
+}
+
 /**
  * Returns a short formatted date (e.g. "Sep 5" or "Today", "Yesterday").
  */
