@@ -198,8 +198,6 @@ export async function generateContentWithFallback({
       };
     } catch (err: any) {
       lastError = err;
-      const status = err?.status || err?.statusCode || err?.code;
-
       // Recoverable error: silently proceed to next model in fallback ladder
       continue;
     }

@@ -259,7 +259,7 @@ export function DailyJournalEditor({
             </div>
           </div>
 
-          {/* Canvas Actions: Save Journal, Save and Synthesis, and utility icons */}
+          {/* Action Icons Cluster */}
           <div className="flex items-center flex-wrap gap-2 text-[#5A6057]">
             {/* 1. Save Journal Button (Saves content + tags only, no synthesis/summary) */}
             <button
@@ -296,25 +296,24 @@ export function DailyJournalEditor({
             </button>
 
             <div className="h-4 w-px bg-[#E2DED5] mx-0.5 hidden sm:block" />
-
-            {/* Settings Gear Icon */}
+            {/* 1. Settings Gear Icon */}
             <div className="relative">
-                <button
-                  id="btn-journal-settings"
-                  onClick={() => {
-                    setIsSettingsOpen((prev) => !prev);
-                    setIsCalendarOpen(false);
-                    setIsTagsOpen(false);
-                  }}
-                  title="Writing preferences & settings"
-                  className={`p-2 rounded-lg transition-colors cursor-pointer ${
-                    isSettingsOpen
-                      ? 'bg-[#EAE7DF] text-[#1A1C18]'
-                      : 'hover:bg-[#EAE7DF]/70 hover:text-[#1A1C18]'
-                  }`}
-                >
-                  <Settings className="w-5 h-5 stroke-[1.75]" />
-                </button>
+              <button
+                id="btn-journal-settings"
+                onClick={() => {
+                  setIsSettingsOpen((prev) => !prev);
+                  setIsCalendarOpen(false);
+                  setIsTagsOpen(false);
+                }}
+                title="Writing preferences & settings"
+                className={`p-2 rounded-lg transition-colors cursor-pointer ${
+                  isSettingsOpen
+                    ? 'bg-[#EAE7DF] text-[#1A1C18]'
+                    : 'hover:bg-[#EAE7DF]/70 hover:text-[#1A1C18]'
+                }`}
+              >
+                <Settings className="w-5 h-5 stroke-[1.75]" />
+              </button>
 
               {/* Settings Popover */}
               {isSettingsOpen && (
