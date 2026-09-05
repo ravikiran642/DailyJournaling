@@ -2,15 +2,17 @@ import { GoogleGenAI, GenerateContentConfig } from '@google/genai';
 
 /**
  * Resilient Model Fallback Ladder ordered by availability and latency:
- * 1. gemini-3.6-flash (Primary)
+ * 1. gemini-3.8-flash (Primary, current default)
  * 2. gemini-3.1-flash-lite (High-Availability Fallback)
  * 3. gemini-flash-latest (Dynamic Alias)
- * 4. gemini-3.7-flash (Deep Reasoning Fallback)
+ * 4. gemini-3.6-flash (Prior Generation Fallback)
+ * 5. gemini-3.7-flash (Deep Reasoning Fallback)
  */
 export const MODEL_FALLBACK_LADDER = [
-  'gemini-3.6-flash',
+  'gemini-3.8-flash',
   'gemini-3.1-flash-lite',
   'gemini-flash-latest',
+  'gemini-3.6-flash',
   'gemini-3.7-flash',
 ];
 
@@ -147,7 +149,14 @@ export function getGenAI(): GoogleGenAI {
     if (!apiKey) {
       throw new Error('GEMINI_API_KEY is not configured in the environment.');
     }
-    genAIInstance = new GoogleGenAI({ apiKey });
+    genAIInstance = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
   }
   return genAIInstance;
 }
@@ -158,7 +167,7 @@ export function getGenAI(): GoogleGenAI {
 export async function generateContentWithFallback({
   contents,
   config,
-  preferredModel = 'gemini-3.6-flash',
+  preferredModel = 'gemini-3.8-flash',
 }: {
   contents: any;
   config?: GenerateContentConfig;

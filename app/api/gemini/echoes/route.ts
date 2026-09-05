@@ -132,7 +132,7 @@ OUTPUT SCHEMA (JSON ONLY):
         systemInstruction:
           'You are a wise, empathetic journaling memory analyst. Output strictly valid JSON matching the requested schema. Never output markdown code fences outside JSON.',
       },
-      preferredModel: 'gemini-3.6-flash',
+      preferredModel: 'gemini-3.8-flash',
     });
 
     let parsedResult: { hasEcho: boolean; echoes: any[] };

@@ -17,6 +17,40 @@ export function getLocalCalendarDate(date: Date = new Date()): string {
 }
 
 /**
+ * Adds or subtracts days from a YYYY-MM-DD date string, returning a new YYYY-MM-DD string.
+ */
+export function addDaysToDate(dateStr: string, days: number): string {
+  if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return getLocalCalendarDate();
+  }
+  const [year, month, day] = dateStr.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  date.setDate(date.getDate() + days);
+  return getLocalCalendarDate(date);
+}
+
+/**
+ * Returns a short formatted date (e.g. "Sep 5" or "Today", "Yesterday").
+ */
+export function formatShortDate(dateStr?: string | null): string {
+  if (!dateStr) return "";
+  const today = getLocalCalendarDate();
+  const yesterday = addDaysToDate(today, -1);
+  if (dateStr === today) return "Today";
+  if (dateStr === yesterday) return "Yesterday";
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    const [year, month, day] = dateStr.split("-").map(Number);
+    const date = new Date(year, month - 1, day);
+    return date.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+    });
+  }
+  return dateStr;
+}
+
+/**
  * Formats a calendar date (YYYY-MM-DD) or ISO date string into a friendly
  * localized display string without UTC-offset day shifts.
  */
@@ -40,5 +74,16 @@ export function formatJournalDate(dateInput?: string | Date | null): string {
     month: "long",
     day: "numeric",
   });
+}
+
+/**
+ * Strips HTML tags and collapses whitespace to return a clean snippet of text.
+ */
+export function getCleanSnippet(htmlOrText?: string): string {
+  if (!htmlOrText) return "";
+  return htmlOrText
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
