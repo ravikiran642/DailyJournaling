@@ -74,11 +74,20 @@ export function JournalDashboard() {
     return () => unsubscribe();
   }, [user?.uid]);
 
+  const [isEditorDirty, setIsEditorDirty] = useState(false);
+  const [pendingTargetDate, setPendingTargetDate] = useState<string | null>(null);
+
   // Handle selecting any date
   const handleSelectDate = useCallback((dateStr: string) => {
+    if (dateStr === activeJournalDate) return;
+    if (isEditorDirty) {
+      setPendingTargetDate(dateStr);
+      return;
+    }
     setActiveJournalDate(dateStr);
+    setIsMobileSidebarOpen(false);
     setErrorMessage(null);
-  }, []);
+  }, [activeJournalDate, isEditorDirty]);
 
   // 1. Save journal content with tags ONLY (without creating any synthesis or summary)
   const handleSaveOnly = async ({
@@ -308,7 +317,14 @@ export function JournalDashboard() {
                 lastSavedAt={lastDailySavedAt}
                 onOpenSynthesisDrawer={() => setIsInsightsOpen((prev) => !prev)}
                 isSynthesisDrawerOpen={isInsightsOpen}
-                onSelectDate={handleSelectDate}
+                onSelectDate={(newDate) => {
+                  setActiveJournalDate(newDate);
+                  setIsMobileSidebarOpen(false);
+                  setPendingTargetDate(null);
+                }}
+                onDirtyChange={setIsEditorDirty}
+                externalPendingDate={pendingTargetDate}
+                onClearExternalPendingDate={() => setPendingTargetDate(null)}
               />
             </main>
 

@@ -27,6 +27,7 @@ import {
   Clock,
   Type,
   Save,
+  AlertTriangle,
 } from 'lucide-react';
 
 interface DailyJournalEditorProps {
@@ -43,6 +44,9 @@ interface DailyJournalEditorProps {
   onOpenSynthesisDrawer?: () => void;
   isSynthesisDrawerOpen?: boolean;
   onSelectDate?: (dateStr: string) => void;
+  onDirtyChange?: (isDirty: boolean) => void;
+  externalPendingDate?: string | null;
+  onClearExternalPendingDate?: () => void;
 }
 
 export function DailyJournalEditor({
@@ -57,6 +61,9 @@ export function DailyJournalEditor({
   onOpenSynthesisDrawer,
   isSynthesisDrawerOpen = false,
   onSelectDate,
+  onDirtyChange,
+  externalPendingDate,
+  onClearExternalPendingDate,
 }: DailyJournalEditorProps) {
   const formattedDate = formatJournalDate(journalDate);
   const [prevEntryKey, setPrevEntryKey] = useState(`${entry?.id || ''}_${journalDate}`);
@@ -76,8 +83,13 @@ export function DailyJournalEditor({
   const [currentTags, setCurrentTags] = useState<string[]>(entry?.tags || []);
   const [newTagInput, setNewTagInput] = useState('');
 
-  // Auto-save debounce timer ref
-  const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // Unsaved changes date navigation confirmation state
+  const [pendingDateChange, setPendingDateChange] = useState<string | null>(null);
+
+  // Sync dirty status with parent dashboard
+  useEffect(() => {
+    onDirtyChange?.(isDirty);
+  }, [isDirty, onDirtyChange]);
 
   const currentEntryKey = `${entry?.id || ''}_${journalDate}`;
   if (currentEntryKey !== prevEntryKey) {
@@ -171,26 +183,48 @@ export function DailyJournalEditor({
     setIsDirty(false);
   }, [editor, saveStatus, isSynthesizing, formattedDate, onSaveAndSynthesize, currentTags]);
 
-  // Debounced auto-save when dirty (saves content + tags only)
-  useEffect(() => {
-    if (!isDirty || saveStatus === 'saving') return;
+  // Target date requiring unsaved changes confirmation
+  const targetDateToConfirm = pendingDateChange || externalPendingDate;
 
-    if (autoSaveTimerRef.current) {
-      clearTimeout(autoSaveTimerRef.current);
+  // Date navigation initiator with unsaved check
+  const handleInitiateDateChange = (targetDate: string) => {
+    if (!targetDate || targetDate === journalDate) return;
+    setIsCalendarOpen(false);
+    if (isDirty) {
+      setPendingDateChange(targetDate);
+    } else if (onSelectDate) {
+      onSelectDate(targetDate);
     }
+  };
 
-    autoSaveTimerRef.current = setTimeout(() => {
-      handleSaveOnly();
-    }, 2500);
+  // Confirm: Save & Reflect, then move to target date
+  const handleConfirmSaveAndReflect = async () => {
+    const target = targetDateToConfirm;
+    if (!target) return;
+    await handleSaveAndSynthesize();
+    setIsDirty(false);
+    setPendingDateChange(null);
+    onClearExternalPendingDate?.();
+    onSelectDate?.(target);
+  };
 
-    return () => {
-      if (autoSaveTimerRef.current) {
-        clearTimeout(autoSaveTimerRef.current);
-      }
-    };
-  }, [isDirty, handleSaveOnly, saveStatus]);
+  // Confirm: Discard unsaved changes and move to target date
+  const handleConfirmDiscardAndMove = () => {
+    const target = targetDateToConfirm;
+    if (!target) return;
+    setIsDirty(false);
+    setPendingDateChange(null);
+    onClearExternalPendingDate?.();
+    onSelectDate?.(target);
+  };
 
-  // Keyboard shortcut: Cmd+S / Ctrl+S (saves content + tags only)
+  // Cancel date navigation, stay on current journal entry
+  const handleCancelDateChange = () => {
+    setPendingDateChange(null);
+    onClearExternalPendingDate?.();
+  };
+
+  // Keyboard shortcut: Cmd+S / Ctrl+S explicitly triggers save journal
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
@@ -453,9 +487,8 @@ export function DailyJournalEditor({
                     type="date"
                     value={journalDate}
                     onChange={(e) => {
-                      if (e.target.value && onSelectDate) {
-                        onSelectDate(e.target.value);
-                        setIsCalendarOpen(false);
+                      if (e.target.value) {
+                        handleInitiateDateChange(e.target.value);
                       }
                     }}
                     className="w-full text-xs p-2 rounded-lg border border-[#E5E7E2] bg-[#FAF8F5] text-[#252723] focus:border-[#6F8273] outline-none"
@@ -463,19 +496,13 @@ export function DailyJournalEditor({
 
                   <div className="flex items-center justify-between pt-1 text-xs">
                     <button
-                      onClick={() => {
-                        if (onSelectDate) onSelectDate(getLocalCalendarDate());
-                        setIsCalendarOpen(false);
-                      }}
+                      onClick={() => handleInitiateDateChange(getLocalCalendarDate())}
                       className="text-[#6F8273] hover:underline font-medium cursor-pointer"
                     >
                       Go to Today
                     </button>
                     <button
-                      onClick={() => {
-                        if (onSelectDate) onSelectDate(addDaysToDate(journalDate, -1));
-                        setIsCalendarOpen(false);
-                      }}
+                      onClick={() => handleInitiateDateChange(addDaysToDate(journalDate, -1))}
                       className="text-[#737872] hover:text-[#1A1C18] cursor-pointer"
                     >
                       Yesterday
@@ -693,6 +720,74 @@ export function DailyJournalEditor({
           />
         </button>
       </div>
+      {/* Unsaved Changes Date Navigation Warning Modal */}
+      {targetDateToConfirm && (
+        <div
+          id="unsaved-changes-modal-backdrop"
+          className="fixed inset-0 z-50 bg-black/45 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
+        >
+          <div
+            id="unsaved-changes-modal"
+            className="bg-white rounded-2xl border border-[#E5E7E2] max-w-md w-full p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-150"
+          >
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-700 shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-base font-semibold text-[#1A1C18]">Unsaved Changes</h3>
+                <p className="text-xs text-[#6F746C] mt-1 leading-relaxed">
+                  Your changes are not saved. Moving to <span className="font-semibold text-[#1A1C18]">{formatJournalDate(targetDateToConfirm)}</span> will discard your unsaved reflections.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-[#FAF8F5] border border-[#EAE7DF] rounded-xl p-3 text-xs text-[#5A6057] space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[#8F948C]">Current Entry:</span>
+                <span className="font-medium text-[#252723]">{formattedDate}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-[#8F948C]">Destination Date:</span>
+                <span className="font-medium text-[#2F4133]">{formatJournalDate(targetDateToConfirm)}</span>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-2 border-t border-[#F0EFEA]">
+              <button
+                id="btn-unsaved-keep-editing"
+                type="button"
+                onClick={handleCancelDateChange}
+                className="px-3 py-2 text-xs font-medium text-[#5A6057] hover:text-[#1A1C18] hover:bg-[#F3F4EF] rounded-lg transition-colors cursor-pointer text-center"
+              >
+                Keep Editing
+              </button>
+              <button
+                id="btn-unsaved-discard"
+                type="button"
+                onClick={handleConfirmDiscardAndMove}
+                className="px-3 py-2 text-xs font-medium text-red-700 hover:bg-red-50 rounded-lg transition-colors cursor-pointer text-center"
+              >
+                Discard Changes
+              </button>
+              <button
+                id="btn-unsaved-save-and-reflect"
+                type="button"
+                disabled={saveStatus === 'saving' || isSynthesizing}
+                onClick={handleConfirmSaveAndReflect}
+                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-medium bg-[#2F4133] text-white hover:bg-[#202E24] rounded-lg transition-colors cursor-pointer shadow-xs disabled:opacity-60 text-center"
+              >
+                {isSynthesizing ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-200" />
+                ) : (
+                  <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                )}
+                <span>Save and Reflect</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
