@@ -1,19 +1,19 @@
 import { GoogleGenAI, GenerateContentConfig } from '@google/genai';
 
 /**
- * Resilient Model Fallback Ladder ordered by availability and latency:
- * 1. gemini-3.8-flash (Primary, current default)
+ * Resilient Model Fallback Ladder ordered by availability and latency (Directive 6):
+ * 1. gemini-3.6-flash (Primary)
  * 2. gemini-3.1-flash-lite (High-Availability Fallback)
  * 3. gemini-flash-latest (Dynamic Alias)
- * 4. gemini-3.6-flash (Prior Generation Fallback)
- * 5. gemini-3.7-flash (Deep Reasoning Fallback)
+ * 4. gemini-3.7-flash (Deep Reasoning Fallback)
+ * 5. gemini-3.8-flash (Extended Fallback)
  */
 export const MODEL_FALLBACK_LADDER = [
-  'gemini-3.8-flash',
+  'gemini-3.6-flash',
   'gemini-3.1-flash-lite',
   'gemini-flash-latest',
-  'gemini-3.6-flash',
   'gemini-3.7-flash',
+  'gemini-3.8-flash',
 ];
 
 /**
@@ -167,7 +167,7 @@ export function getGenAI(): GoogleGenAI {
 export async function generateContentWithFallback({
   contents,
   config,
-  preferredModel = 'gemini-3.8-flash',
+  preferredModel = 'gemini-3.6-flash',
 }: {
   contents: any;
   config?: GenerateContentConfig;
@@ -199,13 +199,8 @@ export async function generateContentWithFallback({
     } catch (err: any) {
       lastError = err;
       const status = err?.status || err?.statusCode || err?.code;
-      const message = err?.message || String(err);
 
-      console.warn(
-        `[Gemini Fallback] Model '${modelName}' encountered an issue (Status: ${status || 'N/A'}): ${message}. Attempting next model in fallback ladder...`
-      );
-
-      // Continue to next model in ladder
+      // Recoverable error: silently proceed to next model in fallback ladder
       continue;
     }
   }

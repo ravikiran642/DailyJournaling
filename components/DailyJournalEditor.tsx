@@ -26,12 +26,15 @@ import {
   Quote,
   Clock,
   Type,
+  Save,
 } from 'lucide-react';
 
 interface DailyJournalEditorProps {
   entry: JournalEntry | null;
   journalDate: string; // YYYY-MM-DD
-  onSave: (data: { title: string; content: string; tags?: string[] }) => Promise<void>;
+  onSave?: (data: { title: string; content: string; tags?: string[] }) => Promise<void>;
+  onSaveOnly: (data: { title: string; content: string; tags?: string[] }) => Promise<void>;
+  onSaveAndSynthesize: (data: { title: string; content: string; tags?: string[] }) => Promise<void>;
   saveStatus: 'idle' | 'saving' | 'saved' | 'error';
   isSynthesizing: boolean;
   synthesisError: string | null;
@@ -46,6 +49,8 @@ export function DailyJournalEditor({
   entry,
   journalDate,
   onSave,
+  onSaveOnly,
+  onSaveAndSynthesize,
   saveStatus,
   isSynthesizing,
   lastSavedAt,
@@ -137,19 +142,36 @@ export function DailyJournalEditor({
     }
   }, [entry, editor]);
 
-  // Handle Save
-  const handleSave = useCallback(async () => {
+  // Handle Save Journal (content + tags only, no synthesis or summary)
+  const handleSaveOnly = useCallback(async () => {
     if (!editor || saveStatus === 'saving') return;
     const contentHtml = editor.getHTML();
-    await onSave({
-      title: formattedDate,
-      content: contentHtml,
-      tags: currentTags,
-    });
+    const saveFn = onSaveOnly || onSave;
+    if (saveFn) {
+      await saveFn({
+        title: formattedDate,
+        content: contentHtml,
+        tags: currentTags,
+      });
+    }
     setIsDirty(false);
-  }, [editor, saveStatus, formattedDate, onSave, currentTags]);
+  }, [editor, saveStatus, formattedDate, onSaveOnly, onSave, currentTags]);
 
-  // Debounced auto-save when dirty
+  // Handle Save and Synthesis (content + tags, then trigger synthesis)
+  const handleSaveAndSynthesize = useCallback(async () => {
+    if (!editor || saveStatus === 'saving' || isSynthesizing) return;
+    const contentHtml = editor.getHTML();
+    if (onSaveAndSynthesize) {
+      await onSaveAndSynthesize({
+        title: formattedDate,
+        content: contentHtml,
+        tags: currentTags,
+      });
+    }
+    setIsDirty(false);
+  }, [editor, saveStatus, isSynthesizing, formattedDate, onSaveAndSynthesize, currentTags]);
+
+  // Debounced auto-save when dirty (saves content + tags only)
   useEffect(() => {
     if (!isDirty || saveStatus === 'saving') return;
 
@@ -158,7 +180,7 @@ export function DailyJournalEditor({
     }
 
     autoSaveTimerRef.current = setTimeout(() => {
-      handleSave();
+      handleSaveOnly();
     }, 2500);
 
     return () => {
@@ -166,19 +188,19 @@ export function DailyJournalEditor({
         clearTimeout(autoSaveTimerRef.current);
       }
     };
-  }, [isDirty, handleSave, saveStatus]);
+  }, [isDirty, handleSaveOnly, saveStatus]);
 
-  // Keyboard shortcut: Cmd+S / Ctrl+S
+  // Keyboard shortcut: Cmd+S / Ctrl+S (saves content + tags only)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault();
-        handleSave();
+        handleSaveOnly();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleSave]);
+  }, [handleSaveOnly]);
 
   // Tag Management
   const handleAddTag = () => {
@@ -206,35 +228,93 @@ export function DailyJournalEditor({
     >
       {/* Sacred Canvas Wrapper with Generous Negative Space */}
       <div className="max-w-3xl w-full mx-auto px-6 sm:px-12 py-10 sm:py-16 flex-1 flex flex-col relative">
-        {/* Entry Header: Date on left, discrete action icons on right (matching wireframe) */}
-        <div className="flex items-center justify-between pb-8 select-none">
-          <h1
-            id="journal-date-title"
-            className="text-2xl sm:text-3xl lg:text-4xl font-serif font-normal text-[#1A1C18] tracking-tight"
-          >
-            {formattedDate}
-          </h1>
+        {/* Entry Header: Date on left, Save Journal & Save and Synthesis buttons + utility icons on right */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 select-none border-b border-[#F0ECE1]">
+          <div>
+            <h1
+              id="journal-date-title"
+              className="text-2xl sm:text-3xl lg:text-4xl font-serif font-normal text-[#1A1C18] tracking-tight"
+            >
+              {formattedDate}
+            </h1>
+            <div className="flex items-center gap-2 mt-1 text-xs text-[#82887E]">
+              {saveStatus === 'saving' ? (
+                <span className="flex items-center gap-1 text-[#6F8273]">
+                  <Loader2 className="w-3 h-3 animate-spin" /> Saving...
+                </span>
+              ) : saveStatus === 'saved' ? (
+                <span className="flex items-center gap-1 text-emerald-700">
+                  <Check className="w-3 h-3" /> Saved to cloud
+                </span>
+              ) : lastSavedAt ? (
+                <span>Last saved {lastSavedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+              ) : (
+                <span>Daily reflection entry</span>
+              )}
+              {isDirty && (
+                <span className="inline-flex items-center gap-1 text-amber-700 text-[11px]">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> Unsaved changes
+                </span>
+              )}
+            </div>
+          </div>
 
-          {/* Action Icons Cluster */}
-          <div className="flex items-center gap-1 sm:gap-2 relative text-[#5A6057]">
-            {/* 1. Settings Gear Icon */}
+          {/* Canvas Actions: Save Journal, Save and Synthesis, and utility icons */}
+          <div className="flex items-center flex-wrap gap-2 text-[#5A6057]">
+            {/* 1. Save Journal Button (Saves content + tags only, no synthesis/summary) */}
+            <button
+              id="btn-save-journal"
+              onClick={handleSaveOnly}
+              disabled={saveStatus === 'saving'}
+              title="Save journal entry content with tags without creating any synthesis or summary"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-[#D5D2C8] bg-white text-[#2B3028] hover:bg-[#F3EFE6] hover:border-[#C4BFB2] transition-colors cursor-pointer shadow-xs disabled:opacity-60"
+            >
+              {saveStatus === 'saving' ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-[#6F8273]" />
+              ) : saveStatus === 'saved' ? (
+                <Check className="w-3.5 h-3.5 text-emerald-600" />
+              ) : (
+                <Save className="w-3.5 h-3.5 text-[#5A6057]" />
+              )}
+              <span>Save Journal</span>
+            </button>
+
+            {/* 2. Save and Synthesis Button (Saves journal and synthesizes data using existing API) */}
+            <button
+              id="btn-save-and-synthesis"
+              onClick={handleSaveAndSynthesize}
+              disabled={saveStatus === 'saving' || isSynthesizing}
+              title="Save journal and synthesize reflection insights with Gemini AI"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium rounded-lg bg-[#2F4133] text-white hover:bg-[#202E24] transition-colors cursor-pointer shadow-xs disabled:opacity-60"
+            >
+              {isSynthesizing ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-200" />
+              ) : (
+                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+              )}
+              <span>{isSynthesizing ? 'Synthesizing...' : 'Save & Synthesize'}</span>
+            </button>
+
+            <div className="h-4 w-px bg-[#E2DED5] mx-0.5 hidden sm:block" />
+
+            {/* Settings Gear Icon */}
             <div className="relative">
-              <button
-                id="btn-journal-settings"
-                onClick={() => {
-                  setIsSettingsOpen((prev) => !prev);
-                  setIsCalendarOpen(false);
-                  setIsTagsOpen(false);
-                }}
-                title="Writing preferences & settings"
-                className={`p-2 rounded-lg transition-colors cursor-pointer ${
-                  isSettingsOpen
-                    ? 'bg-[#EAE7DF] text-[#1A1C18]'
-                    : 'hover:bg-[#EAE7DF]/70 hover:text-[#1A1C18]'
-                }`}
-              >
-                <Settings className="w-5 h-5 stroke-[1.75]" />
-              </button>
+                <button
+                  id="btn-journal-settings"
+                  onClick={() => {
+                    setIsSettingsOpen((prev) => !prev);
+                    setIsCalendarOpen(false);
+                    setIsTagsOpen(false);
+                  }}
+                  title="Writing preferences & settings"
+                  className={`p-2 rounded-lg transition-colors cursor-pointer ${
+                    isSettingsOpen
+                      ? 'bg-[#EAE7DF] text-[#1A1C18]'
+                      : 'hover:bg-[#EAE7DF]/70 hover:text-[#1A1C18]'
+                  }`}
+                >
+                  <Settings className="w-5 h-5 stroke-[1.75]" />
+                </button>
 
               {/* Settings Popover */}
               {isSettingsOpen && (
@@ -492,6 +572,29 @@ export function DailyJournalEditor({
             </div>
           </div>
         </div>
+
+        {/* Active Tags on Canvas (Directly displays saved/current tags with remove controls) */}
+        {currentTags.length > 0 && (
+          <div id="journal-canvas-tags" className="flex flex-wrap items-center gap-1.5 pt-3 pb-4">
+            <span className="text-[11px] text-[#8F948C] font-serif italic mr-1">Tags:</span>
+            {currentTags.map((tag) => (
+              <span
+                key={tag}
+                className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-[#E8EFE9] text-[#2F4133] border border-[#D5E1D7]"
+              >
+                <span>#{tag}</span>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveTag(tag)}
+                  className="text-[#6F8273] hover:text-red-600 cursor-pointer"
+                  title={`Remove #${tag}`}
+                >
+                  <X className="w-2.5 h-2.5" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
 
         {/* Floating / Contextual Text Formatting Toolbar (Contextual Utility) */}
         {editor && (

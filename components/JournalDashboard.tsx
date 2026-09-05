@@ -80,8 +80,8 @@ export function JournalDashboard() {
     setErrorMessage(null);
   }, []);
 
-  // Save or update daily journal in Firestore
-  const handleSaveDailyJournal = async ({
+  // 1. Save journal content with tags ONLY (without creating any synthesis or summary)
+  const handleSaveOnly = async ({
     title,
     content,
     tags,
@@ -96,6 +96,41 @@ export function JournalDashboard() {
     setErrorMessage(null);
 
     try {
+      await saveOrUpdateDailyJournal(user.uid, activeJournalDate, {
+        id: dailyEntry?.id,
+        content,
+        title,
+        tags: tags || dailyEntry?.tags || [],
+      });
+
+      setLastDailySavedAt(new Date());
+      setSyncStatus('saved');
+      setTimeout(() => setSyncStatus('idle'), 3000);
+      // Strictly no synthesis or summary created
+    } catch (err: any) {
+      console.error('Failed to save daily journal:', err);
+      setSyncStatus('error');
+      setErrorMessage('Failed to save journal entry to Firestore.');
+    }
+  };
+
+  // 2. Save AND Synthesis (saves journal content and synthesizes journals data using existing API)
+  const handleSaveAndSynthesize = async ({
+    title,
+    content,
+    tags,
+  }: {
+    title: string;
+    content: string;
+    tags?: string[];
+  }) => {
+    if (!user?.uid) return;
+
+    setSyncStatus('saving');
+    setErrorMessage(null);
+
+    try {
+      // Save the journal entry content and tags first
       const saved = await saveOrUpdateDailyJournal(user.uid, activeJournalDate, {
         id: dailyEntry?.id,
         content,
@@ -107,15 +142,15 @@ export function JournalDashboard() {
       setSyncStatus('saved');
       setTimeout(() => setSyncStatus('idle'), 3000);
 
-      // Trigger AI reflective synthesis in background if content is substantive
-      const plain = content.replace(/<[^>]+>/g, ' ').trim();
-      if (plain.length >= 30) {
-        triggerDailySynthesis(saved, content, activeJournalDate);
-      }
+      // Open synthesis drawer to present generated insights
+      setIsInsightsOpen(true);
+
+      // Synthesize using existing /api/gemini/summarize API
+      await triggerDailySynthesis(saved, content, activeJournalDate);
     } catch (err: any) {
-      console.error('Failed to save daily journal:', err);
+      console.error('Failed to save and synthesize daily journal:', err);
       setSyncStatus('error');
-      setErrorMessage('Failed to save journal entry to Firestore.');
+      setErrorMessage('Failed to save and synthesize journal entry.');
     }
   };
 
@@ -263,7 +298,9 @@ export function JournalDashboard() {
               <DailyJournalEditor
                 entry={dailyEntry}
                 journalDate={activeJournalDate}
-                onSave={handleSaveDailyJournal}
+                onSave={handleSaveOnly}
+                onSaveOnly={handleSaveOnly}
+                onSaveAndSynthesize={handleSaveAndSynthesize}
                 saveStatus={syncStatus}
                 isSynthesizing={isSynthesizingDaily}
                 synthesisError={dailySynthesisError}
