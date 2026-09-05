@@ -36,7 +36,7 @@ interface DailyJournalEditorProps {
   journalDate: string; // YYYY-MM-DD
   onSave?: (data: { title: string; content: string; tags?: string[]; manualTags?: string[] }) => Promise<void>;
   onSaveOnly: (data: { title: string; content: string; tags?: string[]; manualTags?: string[] }) => Promise<void>;
-  onSaveAndSynthesize: (data: { title: string; content: string; tags?: string[]; manualTags?: string[] }) => Promise<void>;
+  onSaveAndSynthesize: (data: { title: string; content: string; tags?: string[]; manualTags?: string[] }) => Promise<JournalEntry | null | void>;
   saveStatus: 'idle' | 'saving' | 'saved' | 'error';
   isSynthesizing: boolean;
   synthesisError: string | null;
@@ -194,12 +194,18 @@ export function DailyJournalEditor({
     const contentHtml = editor.getHTML();
     const titleToSave = currentTitle.trim() || formattedDate;
     if (onSaveAndSynthesize) {
-      await onSaveAndSynthesize({
+      const updatedEntry = await onSaveAndSynthesize({
         title: titleToSave,
         content: contentHtml,
         tags: currentTags,
         manualTags: manualTags,
       });
+      if (updatedEntry && updatedEntry.tags) {
+        setCurrentTags(updatedEntry.tags);
+        if (updatedEntry.manualTags) {
+          setManualTags(updatedEntry.manualTags);
+        }
+      }
     }
     setIsDirty(false);
   }, [editor, saveStatus, isSynthesizing, currentTitle, formattedDate, onSaveAndSynthesize, currentTags, manualTags]);
@@ -277,17 +283,6 @@ export function DailyJournalEditor({
     const updatedManual = manualTags.filter((t) => t.toLowerCase() !== tagToRemove.toLowerCase());
     setCurrentTags(updatedTags);
     setManualTags(updatedManual);
-    setIsDirty(true);
-  };
-
-  // Toggle whether a tag is flagged as manual or AI
-  const handleToggleTagManualFlag = (tagToToggle: string) => {
-    const isManual = manualTags.some((t) => t.toLowerCase() === tagToToggle.toLowerCase());
-    if (isManual) {
-      setManualTags(manualTags.filter((t) => t.toLowerCase() !== tagToToggle.toLowerCase()));
-    } else {
-      setManualTags([...manualTags, tagToToggle]);
-    }
     setIsDirty(true);
   };
 
@@ -602,66 +597,30 @@ export function DailyJournalEditor({
                     </button>
                   </div>
 
-                  {/* Existing Tags */}
+                  {/* Existing Tags (All tags look alike, clean and unified) */}
                   <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto pr-1">
                     {currentTags.length === 0 ? (
                       <span className="text-[11px] text-[#8F948C] italic">
                         No tags assigned to this entry yet.
                       </span>
                     ) : (
-                      currentTags.map((tag) => {
-                        const isManual = manualTags.some(
-                          (m) => m.toLowerCase() === tag.toLowerCase()
-                        );
-                        return (
-                          <span
-                            key={tag}
-                            className={`inline-flex items-center gap-1.5 text-[11px] px-2.5 py-0.5 rounded-full border transition-all ${
-                              isManual
-                                ? 'bg-[#EBF3EC] text-[#243B29] border-[#C8DACB]'
-                                : 'bg-[#F5F3ED] text-[#4E544B] border-[#E2DDD5]'
-                            }`}
+                      currentTags.map((tag) => (
+                        <span
+                          key={tag}
+                          className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-0.5 rounded-full bg-[#EBF3EC] text-[#243B29] border border-[#C8DACB] transition-colors"
+                        >
+                          <span className="font-medium">#{tag}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveTag(tag)}
+                            className="text-[#6F8273] hover:text-red-600 cursor-pointer ml-0.5"
+                            title={`Remove #${tag}`}
                           >
-                            <span className="font-medium">#{tag}</span>
-                            {/* Flag indicator: Manual (user) or AI */}
-                            <button
-                              type="button"
-                              onClick={() => handleToggleTagManualFlag(tag)}
-                              title={
-                                isManual
-                                  ? 'Manual tag (protected from AI synthesis overwrite). Click to toggle.'
-                                  : 'AI generated tag. Click to flag as Manual to protect from overwrite.'
-                              }
-                              className={`text-[8.5px] font-sans font-medium px-1 py-0.2 rounded cursor-pointer transition-colors ${
-                                isManual
-                                  ? 'bg-[#2F4133] text-white hover:bg-[#1E2D22]'
-                                  : 'bg-amber-100 text-amber-800 hover:bg-amber-200 inline-flex items-center gap-0.5'
-                              }`}
-                            >
-                              {isManual ? (
-                                'Manual'
-                              ) : (
-                                <>
-                                  <Sparkles className="w-2 h-2" /> AI
-                                </>
-                              )}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveTag(tag)}
-                              className="text-[#6F8273] hover:text-red-600 cursor-pointer"
-                              title={`Remove #${tag}`}
-                            >
-                              <X className="w-2.5 h-2.5" />
-                            </button>
-                          </span>
-                        );
-                      })
+                            <X className="w-2.5 h-2.5" />
+                          </button>
+                        </span>
+                      ))
                     )}
-                  </div>
-
-                  <div className="text-[10px] text-[#7E847A] pt-0.5 leading-snug">
-                    <span>💡 Manual tags are flagged & protected from AI overwrite.</span>
                   </div>
 
                   {/* Add Tag Input */}
@@ -683,7 +642,7 @@ export function DailyJournalEditor({
                       type="button"
                       onClick={handleAddTag}
                       className="p-1.5 rounded-lg bg-[#252723] text-white hover:bg-[#3D413A] cursor-pointer"
-                      title="Add manual tag"
+                      title="Add tag"
                     >
                       <Plus className="w-3.5 h-3.5" />
                     </button>
@@ -694,56 +653,26 @@ export function DailyJournalEditor({
           </div>
         </div>
 
-        {/* Active Tags on Canvas (Displays current tags with manual vs AI flags and remove controls) */}
+        {/* Active Tags on Canvas (All tags look alike, clean and unified without flags) */}
         {currentTags.length > 0 && (
           <div id="journal-canvas-tags" className="flex flex-wrap items-center gap-1.5 pt-3 pb-4 select-none">
             <span className="text-[11px] text-[#8F948C] font-serif italic mr-1">Tags:</span>
-            {currentTags.map((tag) => {
-              const isManual = manualTags.some(
-                (m) => m.toLowerCase() === tag.toLowerCase()
-              );
-              return (
-                <span
-                  key={tag}
-                  className={`inline-flex items-center gap-1.5 text-[11px] px-2.5 py-0.5 rounded-full border transition-all ${
-                    isManual
-                      ? 'bg-[#EBF3EC] text-[#243B29] border-[#C8DACB]'
-                      : 'bg-[#F5F3ED] text-[#4E544B] border-[#E2DDD5]'
-                  }`}
+            {currentTags.map((tag) => (
+              <span
+                key={tag}
+                className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-0.5 rounded-full bg-[#EBF3EC] text-[#243B29] border border-[#C8DACB] transition-colors"
+              >
+                <span className="font-medium">#{tag}</span>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveTag(tag)}
+                  className="text-[#6F8273] hover:text-red-600 cursor-pointer ml-0.5"
+                  title={`Remove #${tag}`}
                 >
-                  <span className="font-medium">#{tag}</span>
-                  {/* Flag indicator badge */}
-                  <span
-                    className={`text-[8.5px] font-sans font-medium px-1 py-0.2 rounded ${
-                      isManual
-                        ? 'bg-[#2F4133] text-white'
-                        : 'bg-amber-100/90 text-amber-800 inline-flex items-center gap-0.5'
-                    }`}
-                    title={
-                      isManual
-                        ? 'Manually added by you (protected from AI overwrite)'
-                        : 'Generated by AI synthesis'
-                    }
-                  >
-                    {isManual ? (
-                      'Manual'
-                    ) : (
-                      <>
-                        <Sparkles className="w-2 h-2" /> AI
-                      </>
-                    )}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveTag(tag)}
-                    className="text-[#6F8273] hover:text-red-600 cursor-pointer ml-0.5"
-                    title={`Remove #${tag}`}
-                  >
-                    <X className="w-2.5 h-2.5" />
-                  </button>
-                </span>
-              );
-            })}
+                  <X className="w-2.5 h-2.5" />
+                </button>
+              </span>
+            ))}
           </div>
         )}
 

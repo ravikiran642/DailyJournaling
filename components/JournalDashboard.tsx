@@ -153,6 +153,12 @@ export function JournalDashboard() {
         manualTags: manualTags !== undefined ? manualTags : dailyEntry?.manualTags || [],
       });
 
+      // Optimistically update entries in state with the saved entry
+      setEntries((prev) => {
+        const exists = prev.some((e) => e.id === saved.id);
+        return exists ? prev.map((e) => (e.id === saved.id ? saved : e)) : [saved, ...prev];
+      });
+
       setLastDailySavedAt(new Date());
       setSyncStatus('saved');
       setTimeout(() => setSyncStatus('idle'), 3000);
@@ -161,11 +167,13 @@ export function JournalDashboard() {
       setIsInsightsOpen(true);
 
       // Synthesize using existing /api/gemini/summarize API
-      await triggerDailySynthesis(saved, content, activeJournalDate);
+      const synthesized = await triggerDailySynthesis(saved, content, activeJournalDate);
+      return synthesized || saved;
     } catch (err: any) {
       console.error('Failed to save and synthesize daily journal:', err);
       setSyncStatus('error');
       setErrorMessage('Failed to save and synthesize journal entry.');
+      return null;
     }
   };
 
@@ -174,8 +182,8 @@ export function JournalDashboard() {
     entryToSynthesize: JournalEntry,
     contentHtml: string,
     dateStr: string
-  ) => {
-    if (!user?.uid) return;
+  ): Promise<JournalEntry | null> => {
+    if (!user?.uid) return null;
     setIsSynthesizingDaily(true);
     setDailySynthesisError(null);
 
@@ -196,12 +204,12 @@ export function JournalDashboard() {
 
       const data = await res.json();
 
-      // Preserve all manually added tags and existing tags, append generated tags without overwriting
-      const currentTags = entryToSynthesize.tags || [];
+      // Only pick the manual tags so previous AI tags are replaced by fresh generated tags while manual tags are preserved
       const currentManualTags = entryToSynthesize.manualTags || [];
+      const currentTags = currentManualTags;
       const generatedTags: string[] = Array.isArray(data.tags) ? data.tags : [];
 
-      // Combine existing tags and append newly generated tags (case-insensitive deduplication)
+      // Combine manual tags and append newly generated tags (case-insensitive deduplication)
       const combinedTags = [...currentTags];
       for (const genTag of generatedTags) {
         const clean = genTag.trim().replace(/^#/, '');
@@ -226,13 +234,21 @@ export function JournalDashboard() {
         ...updates,
       };
 
+      // Optimistically update entries in state so dailyEntry immediately reflects updated tags and synthesis
+      setEntries((prev) =>
+        prev.map((e) => (e.id === entryToSynthesize.id ? updated : e))
+      );
+
       // Background sync vector embedding for semantic memory
       syncEntryEmbedding(user.uid, updated).catch((err) =>
         console.warn('Post-daily-synthesis embedding sync notice:', err)
       );
+
+      return updated;
     } catch (err: any) {
       console.warn('Background synthesis notice:', err);
       setDailySynthesisError(err.message || 'AI reflection temporarily delayed.');
+      return null;
     } finally {
       setIsSynthesizingDaily(false);
     }
