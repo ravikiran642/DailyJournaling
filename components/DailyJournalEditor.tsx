@@ -72,8 +72,6 @@ interface DailyJournalEditorProps {
   synthesisError: string | null;
   onRetrySynthesis?: () => void;
   lastSavedAt: Date | null;
-  onOpenSynthesisDrawer?: () => void;
-  isSynthesisDrawerOpen?: boolean;
   onOpenChat?: () => void;
   onSelectDate?: (dateStr: string) => void;
   allEntries?: JournalEntry[];
@@ -89,8 +87,6 @@ export function DailyJournalEditor({
   saveStatus,
   isSynthesizing,
   lastSavedAt,
-  onOpenSynthesisDrawer,
-  isSynthesisDrawerOpen = false,
   onOpenChat,
   onSelectDate,
   allEntries = [],
@@ -884,22 +880,6 @@ export function DailyJournalEditor({
               <span>Save Journal</span>
             </button>
 
-            {/* 2. Save and Synthesis Button (Saves journal and synthesizes data using existing API) */}
-            <button
-              id="btn-save-and-synthesis"
-              onClick={handleSaveAndSynthesize}
-              disabled={saveStatus === 'saving' || isSynthesizing}
-              title="Save journal and synthesize reflection insights with Gemini AI"
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium rounded-lg bg-[#2F4133] text-white hover:bg-[#202E24] transition-colors cursor-pointer shadow-xs disabled:opacity-60"
-            >
-              {isSynthesizing ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-200" />
-              ) : (
-                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-              )}
-              <span>{isSynthesizing ? 'Synthesizing...' : 'Save & Synthesize'}</span>
-            </button>
-
             <div className="h-4 w-px bg-[#E2DED5] mx-0.5 hidden sm:block" />
 
             {/* Chat Icon - Transitions to State B (The Deep Chat Canvas) */}
@@ -1461,17 +1441,16 @@ export function DailyJournalEditor({
         )}
       </div>
 
-      {/* Bottom Right Sparkle Icon (Directly matching wireframe) */}
+      {/* Bottom Right Sparkle Icon (Navigates directly to State C Central Synthesis Canvas) */}
       <div className="fixed bottom-6 right-6 sm:bottom-8 sm:right-8 z-30">
         <button
           id="btn-sparkle-reflection"
-          onClick={onOpenSynthesisDrawer}
-          title="Open AI Reflections & Synthesis"
-          className={`w-10 h-10 rounded-full flex items-center justify-center transition-all cursor-pointer shadow-xs ${
-            isSynthesisDrawerOpen
-              ? 'bg-[#252723] text-white rotate-12 scale-105'
-              : 'bg-[#F7F5F0] hover:bg-[#EAE7DF] text-[#6F8273] hover:text-[#1A1C18] border border-[#E0DCD4]'
-          }`}
+          onClick={() => {
+            setPreviousCanvasMode('raw');
+            setCanvasMode('synthesis');
+          }}
+          title="Open Synthesis Canvas (State C)"
+          className="w-10 h-10 rounded-full flex items-center justify-center transition-all cursor-pointer shadow-xs bg-[#F7F5F0] hover:bg-[#EAE7DF] text-[#6F8273] hover:text-[#1A1C18] border border-[#E0DCD4]"
         >
           <Sparkles
             className={`w-4 h-4 transition-transform ${
