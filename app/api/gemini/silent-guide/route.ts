@@ -35,10 +35,8 @@ export async function POST(req: NextRequest) {
     const rawCurrentText = typeof data.currentText === 'string' ? data.currentText.trim() : '';
     const rawLastSentence = typeof data.lastSentence === 'string' ? data.lastSentence.trim() : '';
     const journalDate = typeof data.journalDate === 'string' ? data.journalDate : '';
-    const rawCandidates: any[] = Array.isArray(data.candidates)
-      ? data.candidates
-      : Array.isArray(data.historicalEntries)
-      ? data.historicalEntries
+    const rawCandidates: any[] = Array.isArray(data.allEntries)
+      ? data.allEntries
       : [];
 
     // Guard against empty input: if user hasn't typed anything, return default onboarding guidance (strictly 2 items)
@@ -121,70 +119,40 @@ export async function POST(req: NextRequest) {
       })
       .join('\n\n');
 
-    const promptForGemini = `ANALYZE THE USER'S CURRENT JOURNAL SESSION AND STALL POINT:
+    const promptForGemini = `You are analyzing a user's active journal session to resolve a writing block.
 
-Current Journal Date: ${journalDate || 'Today'}
+[Session Data]
+Journal Date: ${journalDate || 'Today'}
+Active Draft: "${truncatedCurrentText}"
+Stalled Words: "${lastSentence}"
 
-Active Draft So Far:
-"""
-${truncatedCurrentText}
-"""
+${formattedSemanticHistory ? `[Relevant Historical Memories]\n${formattedSemanticHistory}` : ''}
 
-Last Sentence / Words Typed Before Inactivity Stall:
-"""
-${lastSentence}
-"""
+[Instructions]
+1. Diagnose the user's immediate writing friction (e.g., rumination, exhaustion, perfectionism).
+2. Generate an array of EXACTLY TWO (2) highly tailored companion prompts to dissolve the block.
+3. If Historical Memories are provided above, the FIRST prompt object must be a "historical_pivot" that actively weaves specific details from those past records to bridge the connection.
+4. The second prompt should be selected dynamically from these categories: "zero_pressure_dump", "mood_curveball", "physical_grounding", "sensory_anchor", or "perspective_shift".
 
-${
-  hasSemanticMatch
-    ? `SEMANTICALLY MATCHED HISTORICAL JOURNAL MEMORIES (Vector Cosine Similarity Pipeline):
-${formattedSemanticHistory}
-
-CRITICAL REQUIREMENT:
-Because strong semantic echoes exist in their historical journals, you MUST include a "historical_pivot" as the PRIMARY (first) recommendation in the suggestions array. Connect the active stall point to this specific past memory.`
-    : `No close semantic matches found in past entries.`
-}
-
-TASK FOR THE SILENT GUIDE:
-1. Read the user's active draft and identify their immediate friction state:
-   - Are they spiraling in rumination or self-criticism?
-   - Did they pause mid-thought trying to choose the "perfect" words?
-   - Are they exhausted or numb?
-   - Did they stumble upon an uncomfortable or complex emotional realization?
-2. Select EXACTLY TWO (2) of the BEST assistance categories that precisely address this friction:
-   - "historical_pivot": ${
-     hasSemanticMatch
-       ? 'MANDATORY PRIMARY CHOICE. Grounded in specific insights, people, or reflections from the retrieved semantic memories.'
-       : 'Grounded in past wins or past dilemmas from their reflections.'
-   }
-   - "zero_pressure_dump": A raw, uncensored stream-of-consciousness continuation prompt tethered directly to the last words/sentence they stalled on.
-   - "mood_curveball": A delightful, counter-intuitive, or playful question designed to shatter cognitive loops and lower stakes.
-   - "physical_grounding": An invitation to notice somatic tension (shoulders, breathing, jaw) and drop back into the body.
-   - "sensory_anchor": An invitation to anchor into immediate sensory surroundings (ambient sounds, light, temperature).
-   - "perspective_shift": Inviting an outside or future viewpoint (e.g., what their 80-year-old self would whisper).
-
-STRICT OUTPUT CONSTRAINTS:
-- Maximum of TWO (2) suggestions in the "suggestions" array.
-- High-contrast, friendly, non-judgmental tone.
-- Output strictly valid JSON matching this schema:
+Return ONLY valid JSON matching this exact structure:
 {
-  "detectedTone": "short string describing the emotional tone (e.g. 'reflective curiosity', 'workplace exhaustion', 'anxious loop')",
-  "cognitiveState": "short explanation of the friction barrier",
+  "detectedTone": "Short emotional tone description",
+  "cognitiveState": "Brief explanation of the friction barrier",
   "suggestions": [
     {
       "category": "category_key",
-      "label": "Dynamic Category Name (e.g. 'Historical Pivot', 'Zero-Pressure Dump')",
-      "badge": "2-3 word dynamic pill label (e.g. 'Past Echo', 'Raw Stream')",
-      "prompt": "The conversational prompt copy written in the Friendly Companion Voice",
+      "label": "Dynamic Category Name",
+      "badge": "2-3 word dynamic pill label",
+      "prompt": "The conversational prompt copy written in your friendly companion voice",
       "rationale": "Why this suggestion matches their immediate friction"
     }
   ]
 }`;
 
     const systemInstruction = `You are "The Silent Guide", an ultra-minimalist, intuitive AI writing companion.
-Your goal is to gently dissolve writer's block by dynamically selecting the 2 most resonant momentum sparks based on real-time text analysis and semantic memory.
-Maintain a warm, reassuring, pressure-free companion tone. Never give unsolicited advice or lecture.
-Output valid JSON only. Output at most 2 suggestions.`;
+Analyze real-time text friction and historical semantic context to output exactly two (2) highly resonant momentum sparks.
+Maintain a warm, reassuring, pressure-free companion tone. Never lecture or give unsolicited advice.
+Output valid JSON only matching the requested schema.`;
 
     const { text: rawGeminiResponse } = await generateContentWithFallback({
       contents: promptForGemini,

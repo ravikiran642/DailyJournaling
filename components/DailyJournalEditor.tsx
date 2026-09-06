@@ -373,6 +373,7 @@ export function DailyJournalEditor({
             currentText: trimmed,
             lastSentence,
             journalDate,
+            allEntries,
           }),
         });
 
@@ -389,7 +390,7 @@ export function DailyJournalEditor({
         setIsGeneratingSuggestions(false);
       }
     },
-    [dynamicSuggestions.length, journalDate, lastAnalyzedText]
+    [allEntries, dynamicSuggestions.length, journalDate, lastAnalyzedText]
   );
 
   // Trigger stall state and pre-warm dynamic contextual suggestions
