@@ -17,7 +17,6 @@ import { getLocalCalendarDate } from '@/lib/utils';
 import { Navbar } from './Navbar';
 import { Sidebar } from './Sidebar';
 import { DailyJournalEditor } from './DailyJournalEditor';
-import { InsightsPanel } from './InsightsPanel';
 import { PersonalPatterns } from './PersonalPatterns';
 import { AlertCircle, X, Menu } from 'lucide-react';
 
@@ -35,7 +34,6 @@ export function JournalDashboard() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [isInsightsOpen, setIsInsightsOpen] = useState(false);
 
   const initialSyncCompletedRef = useRef(false);
 
@@ -89,6 +87,8 @@ export function JournalDashboard() {
             journalDate: entryToSynthesize.journalDate,
             currentTitle: entryToSynthesize.title,
             manualTags: entryToSynthesize.manualTags || [],
+            existingHash: entryToSynthesize.embeddingSourceHash || '',
+            existingEmbedding: entryToSynthesize.embedding || [],
           }),
         });
 
@@ -230,9 +230,6 @@ export function JournalDashboard() {
       setSyncStatus('saved');
       setTimeout(() => setSyncStatus('idle'), 3000);
 
-      // Open synthesis drawer to present generated insights
-      setIsInsightsOpen(true);
-
       // Synthesize using existing /api/gemini/summarize API
       const synthesized = await triggerDailySynthesis(saved, content, activeJournalDate);
       return synthesized || saved;
@@ -264,6 +261,8 @@ export function JournalDashboard() {
           journalDate: dateStr,
           currentTitle: entryToSynthesize.title,
           manualTags: entryToSynthesize.manualTags || [],
+          existingHash: entryToSynthesize.embeddingSourceHash || '',
+          existingEmbedding: entryToSynthesize.embedding || [],
         }),
       });
 
@@ -416,8 +415,6 @@ export function JournalDashboard() {
                 synthesisError={dailySynthesisError}
                 onRetrySynthesis={handleRetryDailySynthesis}
                 lastSavedAt={lastDailySavedAt}
-                onOpenSynthesisDrawer={() => setIsInsightsOpen((prev) => !prev)}
-                isSynthesisDrawerOpen={isInsightsOpen}
                 onSelectDate={handleSelectDate}
                 allEntries={entries}
                 onUpdateEntry={(updated) => {
@@ -431,15 +428,6 @@ export function JournalDashboard() {
                 }}
               />
             </main>
-
-            {/* Reflective Insights Slide-out Drawer */}
-            <InsightsPanel
-              entry={dailyEntry}
-              onGenerateSummary={handleRetryDailySynthesis}
-              isSummarizing={isSynthesizingDaily}
-              isOpen={isInsightsOpen}
-              onToggle={() => setIsInsightsOpen((prev) => !prev)}
-            />
           </>
         ) : (
           /* Personal Patterns View */
