@@ -136,8 +136,10 @@ export function Sidebar({
   const handleJumpSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (jumpDate) {
+      if (jumpDate > todayStr) return; // Future dates disabled
       onSelectDate(jumpDate);
       setJumpDate('');
+      setIsCalendarOpen(false);
       onCloseMobile();
     }
   };
@@ -178,29 +180,87 @@ export function Sidebar({
               <Search className="w-3.5 h-3.5" />
             </button>
 
-            <form onSubmit={handleJumpSubmit} className="inline-flex items-center">
-              <label
-                htmlFor="sidebar-jump-input"
-                title="Jump to date"
-                className="p-1 rounded hover:bg-[#EBE8E2] text-[#737872] hover:text-[#252723] cursor-pointer"
+            {/* Calendar Popover */}
+            <div className="relative">
+              <button
+                type="button"
+                id="btn-sidebar-calendar"
+                onClick={() => {
+                  setIsCalendarOpen((prev) => !prev);
+                  setIsSearchOpen(false);
+                }}
+                title="Select date"
+                className={`p-1 rounded transition-colors cursor-pointer ${
+                  isCalendarOpen
+                    ? 'bg-[#EBE8E2] text-[#252723]'
+                    : 'hover:bg-[#EBE8E2] text-[#737872] hover:text-[#252723]'
+                }`}
               >
                 <Calendar className="w-3.5 h-3.5" />
-              </label>
-              <input
-                id="sidebar-jump-input"
-                type="date"
-                value={jumpDate}
-                onChange={(e) => {
-                  setJumpDate(e.target.value);
-                  if (e.target.value) {
-                    onSelectDate(e.target.value);
-                    setJumpDate('');
-                    onCloseMobile();
-                  }
-                }}
-                className="sr-only"
-              />
-            </form>
+              </button>
+
+              {isCalendarOpen && (
+                <div
+                  ref={calendarPopoverRef}
+                  id="popover-sidebar-calendar"
+                  className="absolute left-0 top-full mt-1.5 w-60 bg-white border border-[#E5E7E2] rounded-xl shadow-lg p-3 z-50 space-y-2.5 animate-in fade-in duration-100 text-left"
+                >
+                  <div className="flex items-center justify-between border-b border-[#F0EFEA] pb-1.5">
+                    <span className="text-xs font-semibold text-[#1A1C18]">Select Date</span>
+                    <button
+                      type="button"
+                      onClick={() => setIsCalendarOpen(false)}
+                      className="text-[#8F948C] hover:text-[#1A1C18] cursor-pointer"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+
+                  <input
+                    id="sidebar-date-picker-input"
+                    type="date"
+                    max={todayStr}
+                    value={activeJournalDate && activeJournalDate <= todayStr ? activeJournalDate : todayStr}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val) {
+                        if (val > todayStr) return; // Future dates disabled
+                        onSelectDate(val);
+                        setIsCalendarOpen(false);
+                        onCloseMobile();
+                      }
+                    }}
+                    className="w-full text-xs p-1.5 rounded-lg border border-[#E5E7E2] bg-[#FAF8F5] text-[#252723] focus:border-[#6F8273] outline-none"
+                  />
+
+                  <div className="flex items-center justify-between pt-0.5 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSelectDate(todayStr);
+                        setIsCalendarOpen(false);
+                        onCloseMobile();
+                      }}
+                      className="text-[#6F8273] hover:underline font-medium cursor-pointer"
+                    >
+                      Today
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const yesterday = addDaysToDate(todayStr, -1);
+                        onSelectDate(yesterday);
+                        setIsCalendarOpen(false);
+                        onCloseMobile();
+                      }}
+                      className="text-[#737872] hover:text-[#1A1C18] cursor-pointer"
+                    >
+                      Yesterday
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
 
 
 

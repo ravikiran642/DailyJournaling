@@ -53,8 +53,8 @@ export function Navbar({
           )}
         </button>
 
-        <span className="text-lg sm:text-xl font-serif text-[#1A1C18] tracking-tight font-medium">
-          Journal
+        <span className="text-lg sm:text-xl font-serif italic text-[#1A1C18] tracking-tight font-medium">
+          The Open Page
         </span>
       </div>
 
@@ -66,26 +66,21 @@ export function Navbar({
         <button
           id="tab-journal-btn"
           onClick={() => onSelectViewTab && onSelectViewTab('journal')}
-          className={`px-4 py-1 rounded-md text-xs sm:text-sm font-medium transition-all cursor-pointer ${
-            activeViewTab === 'journal'
-              ? 'bg-[#FBF9F5] text-[#1A1C18] shadow-xs'
-              : 'text-[#737872] hover:text-[#1A1C18] hover:bg-[#FBF9F5]/40'
-          }`}
+          className="px-4 py-1 rounded-md text-xs sm:text-sm font-medium transition-all cursor-pointer bg-[#FBF9F5] text-[#1A1C18] shadow-xs"
         >
           Journal
         </button>
 
-        <button
+        <div
           id="tab-patterns-btn"
-          onClick={() => onSelectViewTab && onSelectViewTab('patterns')}
-          className={`px-4 py-1 rounded-md text-xs sm:text-sm font-medium transition-all cursor-pointer ${
-            activeViewTab === 'patterns'
-              ? 'bg-[#FBF9F5] text-[#1A1C18] shadow-xs'
-              : 'text-[#737872] hover:text-[#1A1C18] hover:bg-[#FBF9F5]/40'
-          }`}
+          aria-disabled="true"
+          className="px-3 py-1 rounded-md text-xs sm:text-sm font-medium text-[#737872] opacity-30 pointer-events-none select-none inline-flex items-center gap-1.5 cursor-default"
         >
-          Personal Patterns
-        </button>
+          <span>Personal Patterns</span>
+          <span className="text-[10px] font-normal tracking-wide text-[#737872]">
+            (Coming Soon)
+          </span>
+        </div>
       </div>
 
       {/* Right: Sync Status, User & Window Controls */}

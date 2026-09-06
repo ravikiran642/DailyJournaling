@@ -128,6 +128,8 @@ export function JournalDashboard() {
   const handleSelectDate = useCallback(
     (dateStr: string) => {
       if (!dateStr || dateStr === activeJournalDate) return;
+      const todayStr = getLocalCalendarDate();
+      if (dateStr > todayStr) return; // Disallow selecting or adding entries for future dates
 
       // Trigger B: In background, check if exited day's text or chat data has updated since its last synthesis timestamp
       const exitedEntry = dailyEntry;

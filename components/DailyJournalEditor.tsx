@@ -559,6 +559,8 @@ export function DailyJournalEditor({
   // Seamless Date navigation initiator with immediate flush (no warning popup)
   const handleInitiateDateChange = (targetDate: string) => {
     if (!targetDate || targetDate === journalDate) return;
+    const todayStr = getLocalCalendarDate();
+    if (targetDate > todayStr) return; // Future dates disabled
     setIsCalendarOpen(false);
     setIsFlipPageOpen(false);
     flushPendingSave();
@@ -1061,8 +1063,10 @@ export function DailyJournalEditor({
                   <input
                     type="date"
                     value={journalDate}
+                    max={getLocalCalendarDate()}
                     onChange={(e) => {
                       if (e.target.value) {
+                        if (e.target.value > getLocalCalendarDate()) return;
                         handleInitiateDateChange(e.target.value);
                       }
                     }}
@@ -1308,7 +1312,7 @@ export function DailyJournalEditor({
                 className={`p-1.5 rounded-full cursor-pointer transition-all duration-500 ${
                   isStallMenuOpen
                     ? 'opacity-100 bg-[#2F4133] text-white shadow-md scale-105'
-                    : 'opacity-20 hover:opacity-85 text-[#4E544B] hover:text-[#1A1C18] hover:bg-[#EAE7DF] hover:scale-110'
+                    : 'opacity-38 hover:opacity-85 text-[#4E544B] hover:text-[#1A1C18] hover:bg-[#EAE7DF] hover:scale-110'
                 }`}
               >
                 <Sparkles className="w-3.5 h-3.5" />
