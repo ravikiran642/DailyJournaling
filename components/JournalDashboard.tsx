@@ -363,6 +363,15 @@ export function JournalDashboard() {
                 externalPendingDate={pendingTargetDate}
                 onClearExternalPendingDate={() => setPendingTargetDate(null)}
                 allEntries={entries}
+                onUpdateEntry={(updated) => {
+                  setEntries((prev) => {
+                    const exists = prev.some((e) => e.id === updated.id);
+                    if (exists) {
+                      return prev.map((e) => (e.id === updated.id ? updated : e));
+                    }
+                    return [updated, ...prev];
+                  });
+                }}
               />
             </main>
 

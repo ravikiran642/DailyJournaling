@@ -5,7 +5,11 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
 import Link from '@tiptap/extension-link';
-import { JournalEntry, SilentGuideSuggestion } from '@/lib/types';
+import { motion, AnimatePresence } from 'motion/react';
+import ReactMarkdown from 'react-markdown';
+import { useAuth } from '@/lib/auth-context';
+import { updateJournalEntry, saveOrUpdateDailyJournal } from '@/lib/firestore-service';
+import { JournalEntry, SilentGuideSuggestion, ChatMessage } from '@/lib/types';
 import { formatJournalDate, getLocalCalendarDate, addDaysToDate } from '@/lib/utils';
 import {
   Settings,
@@ -30,7 +34,32 @@ import {
   AlertTriangle,
   Pencil,
   RotateCw,
+  MessageSquare,
+  BookOpen,
+  ChevronLeft,
+  ChevronRight,
+  ArrowLeft,
+  Send,
+  Copy,
+  PenLine,
+  Feather,
+  ShieldCheck,
+  FileText,
+  Hash,
+  Share2,
 } from 'lucide-react';
+
+export type CanvasMode = 'raw' | 'chat' | 'synthesis';
+
+let msgCounter = 0;
+function generateChatId(prefix: string): string {
+  msgCounter += 1;
+  return `${prefix}-${msgCounter}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function getCurrentTimestamp(): string {
+  return new Date().toISOString();
+}
 
 interface DailyJournalEditorProps {
   entry: JournalEntry | null;
@@ -45,11 +74,13 @@ interface DailyJournalEditorProps {
   lastSavedAt: Date | null;
   onOpenSynthesisDrawer?: () => void;
   isSynthesisDrawerOpen?: boolean;
+  onOpenChat?: () => void;
   onSelectDate?: (dateStr: string) => void;
   onDirtyChange?: (isDirty: boolean) => void;
   externalPendingDate?: string | null;
   onClearExternalPendingDate?: () => void;
   allEntries?: JournalEntry[];
+  onUpdateEntry?: (updated: JournalEntry) => void;
 }
 
 export function DailyJournalEditor({
@@ -63,18 +94,36 @@ export function DailyJournalEditor({
   lastSavedAt,
   onOpenSynthesisDrawer,
   isSynthesisDrawerOpen = false,
+  onOpenChat,
   onSelectDate,
   onDirtyChange,
   externalPendingDate,
   onClearExternalPendingDate,
   allEntries = [],
+  onUpdateEntry,
 }: DailyJournalEditorProps) {
+  const { user } = useAuth();
   const formattedDate = formatJournalDate(journalDate);
   const [prevEntryNavKey, setPrevEntryNavKey] = useState(`${entry?.id || ''}_${journalDate}`);
   const [prevTagsServerKey, setPrevTagsServerKey] = useState(
     `${(entry?.tags || []).join(',')}_${(entry?.manualTags || []).join(',')}`
   );
   const [isDirty, setIsDirty] = useState(false);
+
+  // Full-Canvas State Management System (3 States: raw, chat, synthesis)
+  const [canvasMode, setCanvasMode] = useState<CanvasMode>('raw');
+  const [previousCanvasMode, setPreviousCanvasMode] = useState<'raw' | 'chat'>('raw');
+
+  // Deep Chat Canvas State (State B)
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(entry?.messages || []);
+  const [isChatLoading, setIsChatLoading] = useState(false);
+  const [chatInputText, setChatInputText] = useState('');
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const chatMessagesEndRef = useRef<HTMLDivElement | null>(null);
+
+  // Synthesis Canvas State (State C)
+  const [copiedSynthesis, setCopiedSynthesis] = useState(false);
 
   // Title state with fallback to expressed date format: e.g. "Saturday, September 5, 2026"
   const [currentTitle, setCurrentTitle] = useState<string>(entry?.title || formattedDate);
@@ -83,6 +132,7 @@ export function DailyJournalEditor({
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [isTagsOpen, setIsTagsOpen] = useState(false);
+  const [isFlipPageOpen, setIsFlipPageOpen] = useState(false);
   const [isFocusMode, setIsFocusMode] = useState(false);
 
   // Typography Settings
@@ -123,6 +173,9 @@ export function DailyJournalEditor({
     setCurrentTags(entry?.tags || []);
     setManualTags(entry?.manualTags || entry?.tags || []);
     setCurrentTitle(entry?.title || formattedDate);
+    setChatMessages(entry?.messages || []);
+    setChatInputText('');
+    setChatError(null);
     setIsDirty(false);
     setIsStalled(false);
     setIsStallMenuOpen(false);
@@ -134,6 +187,13 @@ export function DailyJournalEditor({
     setCurrentTags(entry?.tags || []);
     setManualTags(entry?.manualTags || []);
   }
+
+  // Scroll to bottom of chat when messages change
+  useEffect(() => {
+    if (canvasMode === 'chat') {
+      chatMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [chatMessages, isChatLoading, canvasMode]);
 
   const triggerStallRef = useRef<() => void>(() => {});
 
@@ -470,6 +530,7 @@ export function DailyJournalEditor({
   const handleInitiateDateChange = (targetDate: string) => {
     if (!targetDate || targetDate === journalDate) return;
     setIsCalendarOpen(false);
+    setIsFlipPageOpen(false);
     if (isDirty) {
       setPendingDateChange(targetDate);
     } else if (onSelectDate) {
@@ -539,6 +600,140 @@ export function DailyJournalEditor({
     setIsDirty(true);
   };
 
+  const getContextSnippet = (): string => {
+    if (entry?.summary) {
+      return entry.summary.length > 120 ? entry.summary.slice(0, 120) + '…' : entry.summary;
+    }
+    if (editor && !editor.isDestroyed) {
+      const text = editor.getText().trim();
+      if (text) {
+        return text.length > 120 ? text.slice(0, 120) + '…' : text;
+      }
+    }
+    if (entry?.content) {
+      const plain = entry.content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      if (plain) {
+        return plain.length > 120 ? plain.slice(0, 120) + '…' : plain;
+      }
+    }
+    return 'Daily journal reflection draft';
+  };
+
+  const handleSendChatMessage = async (textToSend?: string) => {
+    const text = (textToSend || chatInputText).trim();
+    if (!text || isChatLoading) return;
+
+    setChatError(null);
+    const userMsg: ChatMessage = {
+      id: generateChatId('user'),
+      role: 'user',
+      content: text,
+      timestamp: getCurrentTimestamp(),
+    };
+
+    const newMsgs = [...chatMessages, userMsg];
+    setChatMessages(newMsgs);
+    setChatInputText('');
+    setIsChatLoading(true);
+
+    try {
+      const journalText = editor && !editor.isDestroyed ? editor.getText() : (entry?.content || '').replace(/<[^>]+>/g, ' ');
+
+      const response = await fetch('/api/gemini/reflect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: text,
+          messages: newMsgs,
+          mode: 'reflection',
+          journalContext: journalText,
+          journalDate,
+          journalTitle: currentTitle,
+        }),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || 'Reflection service unavailable');
+      }
+
+      const resData = await response.json();
+      const modelMsg: ChatMessage = {
+        id: generateChatId('model'),
+        role: 'model',
+        content: resData.text || 'I have reflected on your thoughts.',
+        timestamp: resData.timestamp || getCurrentTimestamp(),
+      };
+
+      const finalMsgs = [...newMsgs, modelMsg];
+      setChatMessages(finalMsgs);
+
+      // Persist to Firestore with user boundary validation
+      if (user?.uid) {
+        if (entry?.id) {
+          await updateJournalEntry(user.uid, entry.id, { messages: finalMsgs });
+          onUpdateEntry?.({ ...entry, messages: finalMsgs });
+        } else {
+          const saved = await saveOrUpdateDailyJournal(user.uid, journalDate, {
+            title: currentTitle,
+            content: editor?.getHTML() || entry?.content || '',
+            tags: currentTags,
+            manualTags: manualTags,
+          });
+          await updateJournalEntry(user.uid, saved.id, { messages: finalMsgs });
+          onUpdateEntry?.({ ...saved, messages: finalMsgs });
+        }
+      }
+    } catch (err: any) {
+      console.error('Chat error:', err);
+      setChatError(err.message || 'Unable to generate reflection. Please try again.');
+    } finally {
+      setIsChatLoading(false);
+    }
+  };
+
+  const handleCopyMessage = (id: string, text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedMessageId(id);
+    setTimeout(() => setCopiedMessageId(null), 2000);
+  };
+
+  const handleCopySynthesisMarkdown = () => {
+    let md = `# ${currentTitle || formattedDate}\n\n`;
+    md += `*Journal Date: ${formattedDate}*\n\n`;
+    if (entry?.summary) {
+      md += `## Core Digest\n${entry.summary}\n\n`;
+    }
+    if (entry?.synthesis) {
+      md += `## Reflective Synthesis\n${entry.synthesis}\n\n`;
+    }
+    if (entry?.keyInsights && entry.keyInsights.length > 0) {
+      md += `## Key Takeaways & Insights\n`;
+      entry.keyInsights.forEach((item) => {
+        md += `- ${item}\n`;
+      });
+      md += `\n`;
+    }
+    if (entry?.tags && entry.tags.length > 0) {
+      md += `**Themes & Tags:** ${entry.tags.join(', ')}\n\n`;
+    }
+    navigator.clipboard.writeText(md);
+    setCopiedSynthesis(true);
+    setTimeout(() => setCopiedSynthesis(false), 2000);
+  };
+
+  const getWordAndCharCount = () => {
+    let text = '';
+    if (editor && !editor.isDestroyed) {
+      text = editor.getText().trim();
+    } else if (entry?.content) {
+      text = entry.content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+    const words = text ? text.split(/\s+/).filter(Boolean).length : 0;
+    const chars = text.length;
+    return { words, chars };
+  };
+
   return (
     <div
       id="daily-journal-canvas"
@@ -546,8 +741,18 @@ export function DailyJournalEditor({
         isFocusMode ? 'fixed inset-0 z-50 bg-[#FBF9F5]' : ''
       }`}
     >
-      {/* Sacred Canvas Wrapper with Generous Negative Space */}
-      <div className="max-w-3xl w-full mx-auto px-6 sm:px-12 py-10 sm:py-16 flex-1 flex flex-col relative">
+      <AnimatePresence mode="wait">
+        {canvasMode === 'raw' && (
+          <motion.div
+            key="canvas-mode-raw"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
+            className="flex-1 flex flex-col w-full h-full"
+          >
+            {/* Sacred Canvas Wrapper with Generous Negative Space */}
+            <div className="max-w-3xl w-full mx-auto px-6 sm:px-12 py-10 sm:py-16 flex-1 flex flex-col relative">
         {/* Entry Header: Date on left, Save Journal & Save and Synthesis buttons + utility icons on right */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 select-none border-b border-[#F0ECE1]">
           <div className="flex-1 min-w-0 mr-2">
@@ -633,6 +838,45 @@ export function DailyJournalEditor({
             </button>
 
             <div className="h-4 w-px bg-[#E2DED5] mx-0.5 hidden sm:block" />
+
+            {/* Chat Icon - Transitions to State B (The Deep Chat Canvas) */}
+            <div className="relative">
+              <button
+                id="btn-journal-chat"
+                onClick={() => {
+                  setPreviousCanvasMode('raw');
+                  setCanvasMode('chat');
+                  setIsSettingsOpen(false);
+                  setIsCalendarOpen(false);
+                  setIsTagsOpen(false);
+                  setIsFlipPageOpen(false);
+                }}
+                title="Open Deep Chat Canvas (State B)"
+                className="p-2 rounded-lg transition-colors cursor-pointer hover:bg-[#EAE7DF]/70 hover:text-[#1A1C18]"
+              >
+                <MessageSquare className="w-5 h-5 stroke-[1.75]" />
+              </button>
+            </div>
+
+            {/* Flip Page Icon - Transitions to State C (The Synthesis Canvas) */}
+            <div className="relative">
+              <button
+                id="btn-journal-flip-page"
+                onClick={() => {
+                  setPreviousCanvasMode('raw');
+                  setCanvasMode('synthesis');
+                  setIsSettingsOpen(false);
+                  setIsCalendarOpen(false);
+                  setIsTagsOpen(false);
+                  setIsFlipPageOpen(false);
+                }}
+                title="Flip to Synthesis Canvas (State C)"
+                className="p-2 rounded-lg transition-colors cursor-pointer hover:bg-[#EAE7DF]/70 hover:text-[#1A1C18]"
+              >
+                <BookOpen className="w-5 h-5 stroke-[1.75]" />
+              </button>
+            </div>
+
             {/* 1. Settings Gear Icon */}
             <div className="relative">
               <button
@@ -641,6 +885,7 @@ export function DailyJournalEditor({
                   setIsSettingsOpen((prev) => !prev);
                   setIsCalendarOpen(false);
                   setIsTagsOpen(false);
+                  setIsFlipPageOpen(false);
                 }}
                 title="Writing preferences & settings"
                 className={`p-2 rounded-lg transition-colors cursor-pointer ${
@@ -759,6 +1004,7 @@ export function DailyJournalEditor({
                   setIsCalendarOpen((prev) => !prev);
                   setIsSettingsOpen(false);
                   setIsTagsOpen(false);
+                  setIsFlipPageOpen(false);
                 }}
                 title="Jump to date"
                 className={`p-2 rounded-lg transition-colors cursor-pointer ${
@@ -823,6 +1069,7 @@ export function DailyJournalEditor({
                   setIsTagsOpen((prev) => !prev);
                   setIsSettingsOpen(false);
                   setIsCalendarOpen(false);
+                  setIsFlipPageOpen(false);
                 }}
                 title="Add or manage tags"
                 className={`p-2 rounded-lg transition-colors cursor-pointer ${
@@ -1177,6 +1424,517 @@ export function DailyJournalEditor({
           />
         </button>
       </div>
+    </motion.div>
+  )}
+
+  {/* STATE B: THE DEEP CHAT CANVAS (Conversation Mode) */}
+  {canvasMode === 'chat' && (
+    <motion.div
+      key="canvas-mode-chat"
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -6 }}
+      transition={{ duration: 0.18, ease: 'easeOut' }}
+      className="flex-1 flex flex-col w-full h-full bg-[#FAF8F5] select-text"
+    >
+      {/* Contextual Header for State B */}
+      <div className="px-6 sm:px-12 py-4 border-b border-[#EAE7DF] bg-[#FAF8F5] flex items-center justify-between gap-4 shrink-0 select-none">
+        <div className="flex items-center gap-3 min-w-0">
+          <button
+            id="btn-journal-canvas-back-top"
+            onClick={() => setCanvasMode('raw')}
+            title="Return to Journal Canvas"
+            className="p-1.5 rounded-lg text-[#5A6057] hover:bg-[#EAE7DF] hover:text-[#1A1C18] transition-colors cursor-pointer"
+          >
+            <ArrowLeft className="w-4 h-4" />
+          </button>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="font-serif text-lg text-[#1A1C18] truncate">
+                {currentTitle || formattedDate}
+              </span>
+              <span className="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full bg-[#EAE7DF] text-[#4F574E]">
+                Deep Chat
+              </span>
+            </div>
+            <p className="text-[11px] text-[#737872] truncate">
+              {formattedDate} • Conversational Companion
+            </p>
+          </div>
+        </div>
+
+        {/* Header Actions Cluster */}
+        <div className="flex items-center gap-2">
+          {/* Dynamic 'Journal Canvas' action button */}
+          <button
+            id="btn-journal-canvas-back"
+            onClick={() => setCanvasMode('raw')}
+            title="Return to Journal Canvas (State A)"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-[#D5D2C8] bg-white text-[#2B3028] hover:bg-[#F3EFE6] hover:border-[#C4BFB2] transition-colors cursor-pointer shadow-xs"
+          >
+            <PenLine className="w-3.5 h-3.5 text-[#6F8273]" />
+            <span>Journal Canvas</span>
+          </button>
+
+          {/* Flip Page Icon: Routes directly to State C */}
+          <button
+            id="btn-journal-flip-page-from-chat"
+            onClick={() => {
+              setPreviousCanvasMode('chat');
+              setCanvasMode('synthesis');
+            }}
+            title="Flip to Synthesis Canvas (State C)"
+            className="p-2 rounded-lg text-[#5A6057] hover:bg-[#EAE7DF]/70 hover:text-[#1A1C18] transition-colors cursor-pointer"
+          >
+            <BookOpen className="w-5 h-5 stroke-[1.75]" />
+          </button>
+        </div>
+      </div>
+
+      {/* Context Anchor Line */}
+      <div
+        id="chat-context-anchor"
+        className="px-6 sm:px-12 py-2.5 bg-[#F6F4EE]/90 border-b border-[#EAE7DF] text-xs text-[#737872] flex items-center justify-between gap-3 shrink-0"
+      >
+        <div className="flex items-center gap-2 min-w-0 overflow-hidden">
+          <Sparkles className="w-3.5 h-3.5 text-[#6F8273] shrink-0" />
+          <span className="font-semibold uppercase tracking-wider text-[10px] text-[#6F8273] shrink-0">
+            Context Anchor
+          </span>
+          <span className="text-[#B5B0A4] shrink-0">•</span>
+          <span className="font-serif italic truncate text-[#373B34]">
+            {currentTitle || formattedDate}: &ldquo;{getContextSnippet()}&rdquo;
+          </span>
+        </div>
+        <span className="text-[10px] text-[#8F948C] shrink-0 font-sans hidden md:inline-block">
+          Anchored to {journalDate}
+        </span>
+      </div>
+
+      {/* Conversational Scroll Area */}
+      <div className="flex-1 overflow-y-auto px-6 sm:px-12 py-8 flex flex-col justify-between">
+        <div className="max-w-3xl w-full mx-auto space-y-6 flex-1">
+          {chatMessages.length === 0 ? (
+            <div className="py-12 text-center space-y-6 max-w-xl mx-auto">
+              <div className="w-12 h-12 rounded-full bg-[#EAE7DF] mx-auto flex items-center justify-center text-[#5A6057]">
+                <MessageSquare className="w-6 h-6 stroke-[1.5]" />
+              </div>
+              <div>
+                <h3 className="text-xl font-serif text-[#1A1C18]">
+                  Deep Reflection for {formattedDate}
+                </h3>
+                <p className="text-sm text-[#737872] mt-2 leading-relaxed font-serif">
+                  Explore themes, clarify emotions, or unpack patterns rooted in your journal entry for this day.
+                </p>
+              </div>
+
+              {/* Starter prompt chips */}
+              <div className="pt-2 space-y-2 text-left">
+                <p className="text-[11px] uppercase tracking-wider text-[#8F948C] text-center font-medium">
+                  Suggested Reflection Prompts
+                </p>
+                <div className="flex flex-col gap-2">
+                  {[
+                    'What deeper feeling or need lies beneath my journal today?',
+                    'What blind spots or limiting perspectives might I be holding onto?',
+                    'What is one gentle, compassionate action I can take next?',
+                    'Help me synthesize the emotional arc of this entry.',
+                  ].map((promptText, idx) => (
+                    <button
+                      key={idx}
+                      id={`btn-starter-prompt-${idx}`}
+                      onClick={() => handleSendChatMessage(promptText)}
+                      className="text-left text-xs px-3.5 py-2.5 rounded-xl border border-[#E5E7E2] bg-white hover:bg-[#F7F5F0] hover:border-[#D5D2C8] text-[#373B34] transition-colors cursor-pointer"
+                    >
+                      &ldquo;{promptText}&rdquo;
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {chatMessages.map((msg) => (
+                <div
+                  key={msg.id}
+                  className={`flex flex-col ${
+                    msg.role === 'user' ? 'items-end' : 'items-start'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-1 px-1 text-[11px] text-[#8F948C]">
+                    <span className="font-medium text-[#5A6057]">
+                      {msg.role === 'user' ? 'You' : 'Gemini Companion'}
+                    </span>
+                    <span>•</span>
+                    <span>
+                      {msg.timestamp
+                        ? new Date(msg.timestamp).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })
+                        : ''}
+                    </span>
+                  </div>
+
+                  <div
+                    className={`relative max-w-2xl px-5 py-4 rounded-2xl text-sm leading-relaxed ${
+                      msg.role === 'user'
+                        ? 'bg-[#2F4133] text-white rounded-br-xs'
+                        : 'bg-white border border-[#E5E7E2] text-[#252723] rounded-bl-xs shadow-xs'
+                    }`}
+                  >
+                    {msg.role === 'user' ? (
+                      <p className="whitespace-pre-wrap font-serif">{msg.content}</p>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="prose prose-sm prose-stone max-w-none text-[#252723] font-serif leading-relaxed">
+                          <ReactMarkdown>{msg.content}</ReactMarkdown>
+                        </div>
+                        <div className="flex items-center justify-end pt-2 border-t border-[#F0EFEA] mt-3">
+                          <button
+                            onClick={() => handleCopyMessage(msg.id, msg.content)}
+                            title="Copy response"
+                            className="text-[11px] text-[#8F948C] hover:text-[#1A1C18] flex items-center gap-1 cursor-pointer"
+                          >
+                            {copiedMessageId === msg.id ? (
+                              <>
+                                <Check className="w-3 h-3 text-emerald-600" />
+                                <span className="text-emerald-700">Copied</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="w-3 h-3" />
+                                <span>Copy</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+
+              {isChatLoading && (
+                <div className="flex flex-col items-start">
+                  <div className="flex items-center gap-2 mb-1 px-1 text-[11px] text-[#8F948C]">
+                    <span className="font-medium text-[#5A6057]">Gemini Companion</span>
+                    <span>•</span>
+                    <span>Reflecting</span>
+                  </div>
+                  <div className="bg-white border border-[#E5E7E2] rounded-2xl rounded-bl-xs px-5 py-3.5 shadow-xs flex items-center gap-2.5 text-xs text-[#737872]">
+                    <Loader2 className="w-4 h-4 animate-spin text-[#6F8273]" />
+                    <span className="font-serif italic">Attuning to your reflections...</span>
+                  </div>
+                </div>
+              )}
+
+              {chatError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 flex items-center justify-between">
+                  <span>{chatError}</span>
+                  <button
+                    onClick={() => setChatError(null)}
+                    className="text-red-500 hover:text-red-700 cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+              <div ref={chatMessagesEndRef} />
+            </div>
+          )}
+        </div>
+
+        {/* Bottom Input Composer */}
+        <div className="max-w-3xl w-full mx-auto pt-4 shrink-0">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSendChatMessage();
+            }}
+            className="bg-white border border-[#D5D2C8] focus-within:border-[#6F8273] rounded-2xl p-2 shadow-xs transition-colors"
+          >
+            <textarea
+              id="chat-input-textarea"
+              value={chatInputText}
+              onChange={(e) => setChatInputText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSendChatMessage();
+                }
+              }}
+              placeholder={`Reflect on ${formattedDate} (Press Enter to send, Shift+Enter for newline)...`}
+              rows={2}
+              className="w-full bg-transparent px-3 py-1 text-sm text-[#1A1C18] placeholder-[#989E95] focus:outline-none resize-none font-serif leading-relaxed"
+            />
+            <div className="flex items-center justify-between px-2 pt-1 border-t border-[#F0ECE1]">
+              <div className="flex items-center gap-1.5 text-[11px] text-[#8F948C]">
+                <ShieldCheck className="w-3.5 h-3.5 text-[#6F8273]" />
+                <span>Encrypted in Cloud Firestore</span>
+              </div>
+              <button
+                id="btn-send-chat-message"
+                type="submit"
+                disabled={!chatInputText.trim() || isChatLoading}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium bg-[#2F4133] text-white hover:bg-[#202E24] rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {isChatLoading ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-200" />
+                ) : (
+                  <Send className="w-3.5 h-3.5" />
+                )}
+                <span>Send</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </motion.div>
+  )}
+
+  {/* STATE C: THE SYNTHESIS CANVAS (Insights Mode) */}
+  {canvasMode === 'synthesis' && (
+    <motion.div
+      key="canvas-mode-synthesis"
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -6 }}
+      transition={{ duration: 0.18, ease: 'easeOut' }}
+      className="flex-1 flex flex-col w-full h-full bg-[#FAF8F5] overflow-y-auto select-text"
+    >
+      {/* Contextual Toolbar for State C with Dynamic Back-Routing */}
+      <div className="px-6 sm:px-12 py-4 border-b border-[#EAE7DF] bg-[#FAF8F5] flex items-center justify-between gap-4 shrink-0 select-none sticky top-0 z-20 backdrop-blur-xs">
+        <div className="flex items-center gap-3 min-w-0">
+          {/* Dynamic Back-Routing Button */}
+          <button
+            id="btn-synthesis-back"
+            onClick={() => setCanvasMode(previousCanvasMode)}
+            title={`Return to ${previousCanvasMode === 'chat' ? 'Deep Chat' : 'Journal Canvas'}`}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-[#D5D2C8] bg-white text-[#2B3028] hover:bg-[#F3EFE6] transition-colors cursor-pointer shadow-xs"
+          >
+            <ArrowLeft className="w-3.5 h-3.5 text-[#6F8273]" />
+            <span>
+              {previousCanvasMode === 'chat' ? 'Back to Deep Chat' : 'Back to Journal Canvas'}
+            </span>
+          </button>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="font-serif text-lg text-[#1A1C18] truncate">
+                {currentTitle || formattedDate}
+              </span>
+              <span className="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full bg-[#EAE7DF] text-[#4F574E]">
+                Synthesis Canvas
+              </span>
+            </div>
+            <p className="text-[11px] text-[#737872] truncate">
+              {formattedDate} • 5-Key Architectural Metadata
+            </p>
+          </div>
+        </div>
+
+        {/* Right Toolbar Cluster */}
+        <div className="flex items-center gap-2">
+          <button
+            id="btn-synthesis-to-raw"
+            onClick={() => setCanvasMode('raw')}
+            title="Switch to Journal Canvas (State A)"
+            className="p-2 rounded-lg text-[#5A6057] hover:bg-[#EAE7DF] hover:text-[#1A1C18] transition-colors cursor-pointer"
+          >
+            <PenLine className="w-4 h-4" />
+          </button>
+          <button
+            id="btn-synthesis-to-chat"
+            onClick={() => {
+              setPreviousCanvasMode('raw');
+              setCanvasMode('chat');
+            }}
+            title="Switch to Deep Chat (State B)"
+            className="p-2 rounded-lg text-[#5A6057] hover:bg-[#EAE7DF] hover:text-[#1A1C18] transition-colors cursor-pointer"
+          >
+            <MessageSquare className="w-4 h-4" />
+          </button>
+          <div className="h-4 w-px bg-[#E2DED5] mx-0.5 hidden sm:block" />
+          <button
+            id="btn-synthesis-export-markdown"
+            onClick={handleCopySynthesisMarkdown}
+            title="Copy synthesis summary as Markdown"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-[#D5D2C8] bg-white text-[#2B3028] hover:bg-[#F3EFE6] transition-colors cursor-pointer shadow-xs"
+          >
+            {copiedSynthesis ? (
+              <>
+                <Check className="w-3.5 h-3.5 text-emerald-600" />
+                <span className="text-emerald-700">Copied MD</span>
+              </>
+            ) : (
+              <>
+                <Copy className="w-3.5 h-3.5 text-[#5A6057]" />
+                <span>Export MD</span>
+              </>
+            )}
+          </button>
+          <button
+            id="btn-synthesis-resynthesize"
+            onClick={handleSaveAndSynthesize}
+            disabled={isSynthesizing || saveStatus === 'saving'}
+            title="Re-synthesize this journal reflection with Gemini AI"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-[#2F4133] text-white hover:bg-[#202E24] transition-colors cursor-pointer shadow-xs disabled:opacity-60"
+          >
+            <RotateCw
+              className={`w-3.5 h-3.5 ${isSynthesizing ? 'animate-spin text-amber-200' : ''}`}
+            />
+            <span>{isSynthesizing ? 'Synthesizing...' : 'Re-Synthesize'}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* 5-Key Spacious Metadata Content Area */}
+      <div className="max-w-4xl w-full mx-auto px-6 sm:px-12 py-10 sm:py-16 space-y-12">
+        {!entry?.summary && !entry?.synthesis && (!entry?.keyInsights || entry.keyInsights.length === 0) ? (
+          <div className="py-16 text-center space-y-5 max-w-md mx-auto">
+            <div className="w-14 h-14 rounded-full bg-[#EAE7DF] mx-auto flex items-center justify-center text-[#5A6057]">
+              <Feather className="w-7 h-7 stroke-[1.5]" />
+            </div>
+            <div>
+              <h3 className="text-2xl font-serif text-[#1A1C18]">
+                No Synthesis Generated Yet
+              </h3>
+              <p className="text-sm text-[#737872] mt-2 font-serif leading-relaxed">
+                Transform your writing from {formattedDate} into distilled thematic insights, emotional arcs, and core takeaways.
+              </p>
+            </div>
+            <button
+              id="btn-synthesis-generate-now"
+              onClick={handleSaveAndSynthesize}
+              disabled={isSynthesizing || saveStatus === 'saving'}
+              className="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-medium rounded-xl bg-[#2F4133] text-white hover:bg-[#202E24] transition-colors cursor-pointer shadow-xs"
+            >
+              {isSynthesizing ? (
+                <Loader2 className="w-4 h-4 animate-spin text-amber-200" />
+              ) : (
+                <Sparkles className="w-4 h-4 text-amber-300" />
+              )}
+              <span>Synthesize Today&apos;s Journal</span>
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-12">
+            {/* KEY 1: Executive Summary / Core Digest */}
+            <section id="synthesis-key-1-core-digest" className="space-y-3">
+              <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-[#6F8273] font-semibold">
+                <Quote className="w-3.5 h-3.5" />
+                <span>Key 1: Core Digest</span>
+              </div>
+              <div className="pl-4 sm:pl-6 border-l-2 border-[#6F8273] py-1">
+                <p className="text-lg sm:text-xl font-serif italic text-[#1A1C18] leading-relaxed">
+                  &ldquo;{entry?.summary || 'Summary unavailable'}&rdquo;
+                </p>
+              </div>
+            </section>
+
+            {/* KEY 2: Reflective Synthesis */}
+            <section id="synthesis-key-2-reflective-synthesis" className="space-y-3">
+              <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-[#6F8273] font-semibold">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Key 2: Reflective Synthesis</span>
+              </div>
+              <div className="prose prose-stone max-w-none text-[#2B3028] font-serif leading-relaxed text-base whitespace-pre-line">
+                {entry?.synthesis || 'Synthesis in progress...'}
+              </div>
+            </section>
+
+            {/* KEY 3: Synthesized Key Insights & Takeaways */}
+            <section id="synthesis-key-3-insights" className="space-y-4">
+              <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-[#6F8273] font-semibold">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Key 3: Key Insights &amp; Takeaways</span>
+              </div>
+              {entry?.keyInsights && entry.keyInsights.length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {entry.keyInsights.map((insight, idx) => (
+                    <div
+                      key={idx}
+                      className="p-4 rounded-xl border border-[#E5E7E2] bg-white text-xs sm:text-sm text-[#2B3028] leading-relaxed font-serif flex items-start gap-3"
+                    >
+                      <span className="w-5 h-5 rounded-full bg-[#EAE7DF] text-[#4F574E] text-[10px] font-sans font-bold flex items-center justify-center shrink-0 mt-0.5">
+                        {idx + 1}
+                      </span>
+                      <span className="flex-1">{insight}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-[#8F948C] font-serif italic">
+                  No distinct takeaways itemized.
+                </p>
+              )}
+            </section>
+
+            {/* KEY 4: Thematic Tags & Explored Concepts */}
+            <section id="synthesis-key-4-tags" className="space-y-3">
+              <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-[#6F8273] font-semibold">
+                <Tag className="w-3.5 h-3.5" />
+                <span>Key 4: Thematic Tags</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {entry?.tags && entry.tags.length > 0 ? (
+                  entry.tags.map((t, idx) => (
+                    <span
+                      key={idx}
+                      className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-[#EAE7DF] text-[#373B34] border border-[#D5D2C8]"
+                    >
+                      <Hash className="w-3 h-3 text-[#6F8273]" />
+                      <span>{t}</span>
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-xs text-[#8F948C] font-serif italic">
+                    No tags assigned yet.
+                  </span>
+                )}
+              </div>
+            </section>
+
+            {/* KEY 5: Architectural & Temporal Metadata */}
+            <section id="synthesis-key-5-metadata" className="space-y-3 pt-6 border-t border-[#EAE7DF]">
+              <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-[#6F8273] font-semibold">
+                <FileText className="w-3.5 h-3.5" />
+                <span>Key 5: Architectural &amp; Temporal Metadata</span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-1">
+                <div className="p-3 bg-[#FAF8F5] border border-[#E5E7E2] rounded-xl text-xs space-y-1">
+                  <span className="text-[#8F948C] block text-[10px] uppercase">Word Count</span>
+                  <span className="font-semibold text-sm text-[#1A1C18]">
+                    {getWordAndCharCount().words} words
+                  </span>
+                </div>
+                <div className="p-3 bg-[#FAF8F5] border border-[#E5E7E2] rounded-xl text-xs space-y-1">
+                  <span className="text-[#8F948C] block text-[10px] uppercase">Format</span>
+                  <span className="font-semibold text-sm text-[#1A1C18]">
+                    Daily Primary
+                  </span>
+                </div>
+                <div className="p-3 bg-[#FAF8F5] border border-[#E5E7E2] rounded-xl text-xs space-y-1">
+                  <span className="text-[#8F948C] block text-[10px] uppercase">Created</span>
+                  <span className="font-semibold text-xs text-[#1A1C18] block truncate">
+                    {entry?.createdAt ? new Date(entry.createdAt).toLocaleDateString() : formattedDate}
+                  </span>
+                </div>
+                <div className="p-3 bg-[#FAF8F5] border border-[#E5E7E2] rounded-xl text-xs space-y-1">
+                  <span className="text-[#8F948C] block text-[10px] uppercase">Persistence</span>
+                  <div className="flex items-center gap-1 text-emerald-700 font-semibold text-xs">
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <span>Firestore Verified</span>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+        )}
+      </div>
+    </motion.div>
+  )}
+</AnimatePresence>
       {/* Unsaved Changes Date Navigation Warning Modal */}
       {targetDateToConfirm && (
         <div

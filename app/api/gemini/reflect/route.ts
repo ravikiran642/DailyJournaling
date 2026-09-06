@@ -19,6 +19,9 @@ export async function POST(req: NextRequest) {
     const mode = typeof data.mode === 'string' ? data.mode : 'reflection';
     const userPrompt = typeof data.prompt === 'string' ? data.prompt.trim() : '';
     const confirmedEchoes = Array.isArray(data.confirmedEchoContext) ? data.confirmedEchoContext : [];
+    const journalContext = typeof data.journalContext === 'string' ? data.journalContext.trim() : '';
+    const journalDate = typeof data.journalDate === 'string' ? data.journalDate.trim() : '';
+    const journalTitle = typeof data.journalTitle === 'string' ? data.journalTitle.trim() : '';
 
     if (!userPrompt && messages.length === 0) {
       return NextResponse.json(
@@ -37,6 +40,14 @@ Guidelines:
 - Ask 1-2 open-ended, thought-provoking questions that inspire deeper self-awareness.
 - Structure responses clearly with brief paragraphs or concise bullet points where helpful.
 - Avoid generic cliches or unsolicited advice unless explicitly requested.`;
+
+    if (journalContext) {
+      systemInstruction += `\n\nCURRENT JOURNAL ENTRY CONTEXT (${journalDate || 'Current Day'}${journalTitle ? ` - "${journalTitle}"` : ''}):
+"""
+${journalContext}
+"""
+The user is conversing with you directly anchored in this journal writing. Reference and reflect on their specific themes, thoughts, and words when insightful and helpful.`;
+    }
 
     if (mode === 'brainstorm') {
       systemInstruction = `You are a creative brainstorming partner.
