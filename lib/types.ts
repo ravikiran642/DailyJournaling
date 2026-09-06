@@ -40,6 +40,7 @@ export interface JournalEntry {
   messages?: ChatMessage[];
   createdAt: string;
   updatedAt: string;
+  lastSynthesizedAt?: string; // ISO timestamp of when the entry was last synthesized
   embedding?: number[];
   embeddingSourceHash?: string;
   confirmedEchoContext?: EchoReference[];

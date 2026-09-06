@@ -109,6 +109,9 @@ export async function saveOrUpdateDailyJournal(
     keyInsights?: string[];
     tags?: string[];
     manualTags?: string[];
+    lastSynthesizedAt?: string;
+    embedding?: number[];
+    embeddingSourceHash?: string;
   }
 ): Promise<JournalEntry> {
   if (!userId) {
@@ -141,6 +144,9 @@ export async function saveOrUpdateDailyJournal(
       ...(data.keyInsights !== undefined ? { keyInsights: data.keyInsights } : {}),
       ...(data.tags !== undefined ? { tags: data.tags } : {}),
       ...(data.manualTags !== undefined ? { manualTags: data.manualTags } : {}),
+      ...(data.lastSynthesizedAt !== undefined ? { lastSynthesizedAt: data.lastSynthesizedAt } : {}),
+      ...(data.embedding !== undefined ? { embedding: data.embedding } : {}),
+      ...(data.embeddingSourceHash !== undefined ? { embeddingSourceHash: data.embeddingSourceHash } : {}),
     };
 
     await updateDoc(docRef, sanitizePayload(updates));
@@ -164,11 +170,32 @@ export async function saveOrUpdateDailyJournal(
       messages: [],
       createdAt: now,
       updatedAt: now,
+      lastSynthesizedAt: data.lastSynthesizedAt,
+      embedding: data.embedding,
+      embeddingSourceHash: data.embeddingSourceHash,
     };
 
     await setDoc(newDocRef, sanitizePayload(newEntry));
     return newEntry;
   }
+}
+
+/**
+ * Debounced quick-updater for journal content and title.
+ * Updates the content field directly in Firestore without clobbering other metadata.
+ */
+export async function updateDailyJournalContent(
+  userId: string,
+  dateStr: string,
+  content: string,
+  title?: string,
+  entryId?: string
+): Promise<JournalEntry> {
+  return saveOrUpdateDailyJournal(userId, dateStr, {
+    id: entryId,
+    content,
+    title: title || 'Daily Reflection',
+  });
 }
 
 /**

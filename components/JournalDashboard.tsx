@@ -74,20 +74,87 @@ export function JournalDashboard() {
     return () => unsubscribe();
   }, [user?.uid]);
 
-  const [isEditorDirty, setIsEditorDirty] = useState(false);
-  const [pendingTargetDate, setPendingTargetDate] = useState<string | null>(null);
+  // Silent background synthesis for Trigger B (Background Routing)
+  const triggerSilentBackgroundSynthesis = useCallback(
+    async (entryToSynthesize: JournalEntry) => {
+      if (!user?.uid || !entryToSynthesize) return;
 
-  // Handle selecting any date
-  const handleSelectDate = useCallback((dateStr: string) => {
-    if (dateStr === activeJournalDate) return;
-    if (isEditorDirty) {
-      setPendingTargetDate(dateStr);
-      return;
-    }
-    setActiveJournalDate(dateStr);
-    setIsMobileSidebarOpen(false);
-    setErrorMessage(null);
-  }, [activeJournalDate, isEditorDirty]);
+      try {
+        const res = await fetch('/api/gemini/summarize', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            content: entryToSynthesize.content || '',
+            messages: entryToSynthesize.messages || [],
+            journalDate: entryToSynthesize.journalDate,
+            currentTitle: entryToSynthesize.title,
+            manualTags: entryToSynthesize.manualTags || [],
+          }),
+        });
+
+        if (!res.ok) {
+          console.warn('[Background Synthesis] Silent synthesis response status:', res.status);
+          return;
+        }
+
+        const data = await res.json();
+
+        const updates: Partial<JournalEntry> = {
+          title: data.title || entryToSynthesize.title,
+          summary: data.summary || '',
+          synthesis: data.synthesis || '',
+          keyInsights: data.keyInsights || [],
+          tags: data.tags || entryToSynthesize.tags || ['Daily'],
+          manualTags: entryToSynthesize.manualTags || [],
+          lastSynthesizedAt: data.lastSynthesizedAt || new Date().toISOString(),
+          embedding: data.embedding || entryToSynthesize.embedding,
+          embeddingSourceHash: data.embeddingSourceHash || entryToSynthesize.embeddingSourceHash,
+        };
+
+        await updateJournalEntry(user.uid, entryToSynthesize.id, updates);
+
+        // Optimistically update entry in local state
+        setEntries((prev) =>
+          prev.map((e) => (e.id === entryToSynthesize.id ? { ...e, ...updates } : e))
+        );
+      } catch (err) {
+        console.warn('[Background Synthesis] Silent background synthesis error:', err);
+      }
+    },
+    [user]
+  );
+
+  // Seamless date selection with Trigger B (Background Routing) - no popups or warnings
+  const handleSelectDate = useCallback(
+    (dateStr: string) => {
+      if (!dateStr || dateStr === activeJournalDate) return;
+
+      // Trigger B: In background, check if exited day's text or chat data has updated since its last synthesis timestamp
+      const exitedEntry = dailyEntry;
+      if (exitedEntry) {
+        const plainContent = (exitedEntry.content || '').replace(/<[^>]+>/g, '').trim();
+        const hasSubstantialData =
+          plainContent.length > 0 ||
+          (Array.isArray(exitedEntry.messages) && exitedEntry.messages.length > 0);
+
+        const hasUpdatedSinceSynthesis =
+          hasSubstantialData &&
+          (!exitedEntry.lastSynthesizedAt ||
+            new Date(exitedEntry.updatedAt).getTime() > new Date(exitedEntry.lastSynthesizedAt).getTime());
+
+        if (hasUpdatedSinceSynthesis) {
+          // Execute background synthesis silently
+          triggerSilentBackgroundSynthesis(exitedEntry);
+        }
+      }
+
+      // Seamless instant navigation
+      setActiveJournalDate(dateStr);
+      setIsMobileSidebarOpen(false);
+      setErrorMessage(null);
+    },
+    [activeJournalDate, dailyEntry, triggerSilentBackgroundSynthesis]
+  );
 
   // 1. Save journal content with tags ONLY (without creating any synthesis or summary)
   const handleSaveOnly = async ({
@@ -177,7 +244,7 @@ export function JournalDashboard() {
     }
   };
 
-  // Background AI synthesis for daily reflection
+  // Background AI synthesis for daily reflection using centralized API
   const triggerDailySynthesis = async (
     entryToSynthesize: JournalEntry,
     contentHtml: string,
@@ -193,7 +260,10 @@ export function JournalDashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           content: contentHtml,
+          messages: entryToSynthesize.messages || [],
           journalDate: dateStr,
+          currentTitle: entryToSynthesize.title,
+          manualTags: entryToSynthesize.manualTags || [],
         }),
       });
 
@@ -204,26 +274,17 @@ export function JournalDashboard() {
 
       const data = await res.json();
 
-      // Only pick the manual tags so previous AI tags are replaced by fresh generated tags while manual tags are preserved
       const currentManualTags = entryToSynthesize.manualTags || [];
-      const currentTags = currentManualTags;
-      const generatedTags: string[] = Array.isArray(data.tags) ? data.tags : [];
-
-      // Combine manual tags and append newly generated tags (case-insensitive deduplication)
-      const combinedTags = [...currentTags];
-      for (const genTag of generatedTags) {
-        const clean = genTag.trim().replace(/^#/, '');
-        if (clean && !combinedTags.some((t) => t.toLowerCase() === clean.toLowerCase())) {
-          combinedTags.push(clean);
-        }
-      }
-
       const updates: Partial<JournalEntry> = {
+        title: data.title || entryToSynthesize.title,
         synthesis: data.synthesis || '',
         summary: data.summary || '',
         keyInsights: data.keyInsights || [],
-        tags: combinedTags.length > 0 ? combinedTags : ['Daily'],
+        tags: data.tags || entryToSynthesize.tags || ['Daily'],
         manualTags: currentManualTags,
+        lastSynthesizedAt: data.lastSynthesizedAt || new Date().toISOString(),
+        embedding: data.embedding || entryToSynthesize.embedding,
+        embeddingSourceHash: data.embeddingSourceHash || entryToSynthesize.embeddingSourceHash,
       };
 
       await updateJournalEntry(user.uid, entryToSynthesize.id, updates);
@@ -238,10 +299,12 @@ export function JournalDashboard() {
         prev.map((e) => (e.id === entryToSynthesize.id ? updated : e))
       );
 
-      // Background sync vector embedding for semantic memory
-      syncEntryEmbedding(user.uid, updated).catch((err) =>
-        console.warn('Post-daily-synthesis embedding sync notice:', err)
-      );
+      // Background sync vector embedding for semantic memory if not returned
+      if (!data.embedding || data.embedding.length === 0) {
+        syncEntryEmbedding(user.uid, updated).catch((err) =>
+          console.warn('Post-daily-synthesis embedding sync notice:', err)
+        );
+      }
 
       return updated;
     } catch (err: any) {
@@ -342,6 +405,7 @@ export function JournalDashboard() {
 
               {/* Daily Journal Sacred Canvas */}
               <DailyJournalEditor
+                key={activeJournalDate}
                 entry={dailyEntry}
                 journalDate={activeJournalDate}
                 onSave={handleSaveOnly}
@@ -354,14 +418,7 @@ export function JournalDashboard() {
                 lastSavedAt={lastDailySavedAt}
                 onOpenSynthesisDrawer={() => setIsInsightsOpen((prev) => !prev)}
                 isSynthesisDrawerOpen={isInsightsOpen}
-                onSelectDate={(newDate) => {
-                  setActiveJournalDate(newDate);
-                  setIsMobileSidebarOpen(false);
-                  setPendingTargetDate(null);
-                }}
-                onDirtyChange={setIsEditorDirty}
-                externalPendingDate={pendingTargetDate}
-                onClearExternalPendingDate={() => setPendingTargetDate(null)}
+                onSelectDate={handleSelectDate}
                 allEntries={entries}
                 onUpdateEntry={(updated) => {
                   setEntries((prev) => {

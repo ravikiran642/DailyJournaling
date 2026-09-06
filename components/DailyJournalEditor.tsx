@@ -76,9 +76,6 @@ interface DailyJournalEditorProps {
   isSynthesisDrawerOpen?: boolean;
   onOpenChat?: () => void;
   onSelectDate?: (dateStr: string) => void;
-  onDirtyChange?: (isDirty: boolean) => void;
-  externalPendingDate?: string | null;
-  onClearExternalPendingDate?: () => void;
   allEntries?: JournalEntry[];
   onUpdateEntry?: (updated: JournalEntry) => void;
 }
@@ -96,19 +93,11 @@ export function DailyJournalEditor({
   isSynthesisDrawerOpen = false,
   onOpenChat,
   onSelectDate,
-  onDirtyChange,
-  externalPendingDate,
-  onClearExternalPendingDate,
   allEntries = [],
   onUpdateEntry,
 }: DailyJournalEditorProps) {
   const { user } = useAuth();
   const formattedDate = formatJournalDate(journalDate);
-  const [prevEntryNavKey, setPrevEntryNavKey] = useState(`${entry?.id || ''}_${journalDate}`);
-  const [prevTagsServerKey, setPrevTagsServerKey] = useState(
-    `${(entry?.tags || []).join(',')}_${(entry?.manualTags || []).join(',')}`
-  );
-  const [isDirty, setIsDirty] = useState(false);
 
   // Full-Canvas State Management System (3 States: raw, chat, synthesis)
   const [canvasMode, setCanvasMode] = useState<CanvasMode>('raw');
@@ -144,9 +133,6 @@ export function DailyJournalEditor({
   const [manualTags, setManualTags] = useState<string[]>(entry?.manualTags || entry?.tags || []);
   const [newTagInput, setNewTagInput] = useState('');
 
-  // Unsaved changes date navigation confirmation state
-  const [pendingDateChange, setPendingDateChange] = useState<string | null>(null);
-
   // The Silent Guide State (State 1 & State 2)
   const [isStalled, setIsStalled] = useState(false);
   const [isStallMenuOpen, setIsStallMenuOpen] = useState(false);
@@ -159,34 +145,104 @@ export function DailyJournalEditor({
   const editorCanvasRef = useRef<HTMLDivElement | null>(null);
   const stallMenuRef = useRef<HTMLDivElement | null>(null);
 
-  // Sync dirty status with parent dashboard
+  // Intelligent Raw Data Saving (3-second debounce on text input)
+  const isSavePendingRef = useRef(false);
+  const [isDebouncePending, setIsDebouncePending] = useState(false);
+  const debounceSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const pendingContentRef = useRef<{
+    content: string;
+    title: string;
+    tags: string[];
+    manualTags: string[];
+  } | null>(null);
+
+  // Flush routine to persist pending changes immediately
+  const flushPendingSave = useCallback(async () => {
+    if (debounceSaveTimerRef.current) {
+      clearTimeout(debounceSaveTimerRef.current);
+      debounceSaveTimerRef.current = null;
+    }
+
+    if (!isSavePendingRef.current || !pendingContentRef.current) {
+      return;
+    }
+
+    const payload = pendingContentRef.current;
+    isSavePendingRef.current = false;
+    setIsDebouncePending(false);
+
+    const saveFn = onSaveOnly || onSave;
+    if (saveFn) {
+      await saveFn({
+        title: payload.title.trim() || formattedDate,
+        content: payload.content,
+        tags: payload.tags,
+        manualTags: payload.manualTags,
+      });
+    }
+  }, [onSaveOnly, onSave, formattedDate]);
+
+  // Queue debounced save (3s) when content or title updates
+  const queueDebouncedSave = useCallback(
+    (newContent?: string, newTitle?: string, newTags?: string[], newManualTags?: string[]) => {
+      const contentToSave =
+        newContent !== undefined
+          ? newContent
+          : pendingContentRef.current?.content || entry?.content || '';
+      const titleToSave = newTitle !== undefined ? newTitle : currentTitle;
+      const tagsToSave = newTags !== undefined ? newTags : currentTags;
+      const manualTagsToSave = newManualTags !== undefined ? newManualTags : manualTags;
+
+      pendingContentRef.current = {
+        content: contentToSave,
+        title: titleToSave,
+        tags: tagsToSave,
+        manualTags: manualTagsToSave,
+      };
+      isSavePendingRef.current = true;
+      setIsDebouncePending(true);
+
+      if (debounceSaveTimerRef.current) {
+        clearTimeout(debounceSaveTimerRef.current);
+      }
+
+      debounceSaveTimerRef.current = setTimeout(() => {
+        flushPendingSave();
+      }, 3000);
+    },
+    [entry?.content, currentTitle, currentTags, manualTags, flushPendingSave]
+  );
+
+  // Application Exit Safety: Bind a final flush routine to browser visibility/unload events
   useEffect(() => {
-    onDirtyChange?.(isDirty);
-  }, [isDirty, onDirtyChange]);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden' && isSavePendingRef.current) {
+        flushPendingSave();
+      }
+    };
 
-  const currentEntryNavKey = `${entry?.id || ''}_${journalDate}`;
-  const currentTagsServerKey = `${(entry?.tags || []).join(',')}_${(entry?.manualTags || []).join(',')}`;
+    const handleBeforeUnload = () => {
+      if (isSavePendingRef.current) {
+        flushPendingSave();
+      }
+    };
 
-  if (currentEntryNavKey !== prevEntryNavKey) {
-    setPrevEntryNavKey(currentEntryNavKey);
-    setPrevTagsServerKey(currentTagsServerKey);
-    setCurrentTags(entry?.tags || []);
-    setManualTags(entry?.manualTags || entry?.tags || []);
-    setCurrentTitle(entry?.title || formattedDate);
-    setChatMessages(entry?.messages || []);
-    setChatInputText('');
-    setChatError(null);
-    setIsDirty(false);
-    setIsStalled(false);
-    setIsStallMenuOpen(false);
-    setDynamicSuggestions([]);
-    setSuggestionTone(null);
-    setLastAnalyzedText('');
-  } else if (currentTagsServerKey !== prevTagsServerKey) {
-    setPrevTagsServerKey(currentTagsServerKey);
-    setCurrentTags(entry?.tags || []);
-    setManualTags(entry?.manualTags || []);
-  }
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pagehide', handleBeforeUnload);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pagehide', handleBeforeUnload);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      if (debounceSaveTimerRef.current) {
+        clearTimeout(debounceSaveTimerRef.current);
+      }
+      if (isSavePendingRef.current) {
+        flushPendingSave();
+      }
+    };
+  }, [flushPendingSave]);
 
   // Scroll to bottom of chat when messages change
   useEffect(() => {
@@ -243,8 +299,8 @@ export function DailyJournalEditor({
       },
     },
     immediatelyRender: false,
-    onUpdate: () => {
-      setIsDirty(true);
+    onUpdate: ({ editor: activeEditor }) => {
+      queueDebouncedSave(activeEditor.getHTML());
       setIsStalled(false);
       setIsStallMenuOpen(false);
       if (stallTimerRef.current) {
@@ -459,17 +515,20 @@ export function DailyJournalEditor({
     }
   };
 
-  const handleInsertPrompt = useCallback((promptText: string) => {
-    if (!editor) return;
-    editor
-      .chain()
-      .focus()
-      .insertContent(`<p><em>${promptText}</em></p><p></p>`)
-      .run();
-    setIsStalled(false);
-    setIsStallMenuOpen(false);
-    setIsDirty(true);
-  }, [editor]);
+  const handleInsertPrompt = useCallback(
+    (promptText: string) => {
+      if (!editor) return;
+      editor
+        .chain()
+        .focus()
+        .insertContent(`<p><em>${promptText}</em></p><p></p>`)
+        .run();
+      setIsStalled(false);
+      setIsStallMenuOpen(false);
+      queueDebouncedSave(editor.getHTML());
+    },
+    [editor, queueDebouncedSave]
+  );
 
   // Keep editor content in sync when loaded entry changes
   useEffect(() => {
@@ -484,27 +543,16 @@ export function DailyJournalEditor({
     }
   }, [entry, editor]);
 
-  // Handle Save Journal (content + tags only, no synthesis or summary)
+  // Handle Save Journal (content + tags only, immediately flushes debounced save)
   const handleSaveOnly = useCallback(async () => {
-    if (!editor || saveStatus === 'saving') return;
-    const contentHtml = editor.getHTML();
-    const saveFn = onSaveOnly || onSave;
-    const titleToSave = currentTitle.trim() || formattedDate;
-    if (saveFn) {
-      await saveFn({
-        title: titleToSave,
-        content: contentHtml,
-        tags: currentTags,
-        manualTags: manualTags,
-      });
-    }
-    setIsDirty(false);
-  }, [editor, saveStatus, currentTitle, formattedDate, onSaveOnly, onSave, currentTags, manualTags]);
+    await flushPendingSave();
+  }, [flushPendingSave]);
 
-  // Handle Save and Synthesis (content + tags, then trigger synthesis)
+  // Handle Save and Synthesis (flushes debounced save, then executes synthesis)
   const handleSaveAndSynthesize = useCallback(async () => {
-    if (!editor || saveStatus === 'saving' || isSynthesizing) return;
-    const contentHtml = editor.getHTML();
+    if (saveStatus === 'saving' || isSynthesizing) return;
+    await flushPendingSave();
+    const contentHtml = editor && !editor.isDestroyed ? editor.getHTML() : entry?.content || '';
     const titleToSave = currentTitle.trim() || formattedDate;
     if (onSaveAndSynthesize) {
       const updatedEntry = await onSaveAndSynthesize({
@@ -520,50 +568,49 @@ export function DailyJournalEditor({
         }
       }
     }
-    setIsDirty(false);
-  }, [editor, saveStatus, isSynthesizing, currentTitle, formattedDate, onSaveAndSynthesize, currentTags, manualTags]);
+  }, [saveStatus, isSynthesizing, flushPendingSave, editor, entry?.content, currentTitle, formattedDate, onSaveAndSynthesize, currentTags, manualTags]);
 
-  // Target date requiring unsaved changes confirmation
-  const targetDateToConfirm = pendingDateChange || externalPendingDate;
-
-  // Date navigation initiator with unsaved check
+  // Seamless Date navigation initiator with immediate flush (no warning popup)
   const handleInitiateDateChange = (targetDate: string) => {
     if (!targetDate || targetDate === journalDate) return;
     setIsCalendarOpen(false);
     setIsFlipPageOpen(false);
-    if (isDirty) {
-      setPendingDateChange(targetDate);
-    } else if (onSelectDate) {
+    flushPendingSave();
+    if (onSelectDate) {
       onSelectDate(targetDate);
     }
   };
 
-  // Confirm: Save & Reflect, then move to target date
-  const handleConfirmSaveAndReflect = async () => {
-    const target = targetDateToConfirm;
-    if (!target) return;
-    await handleSaveAndSynthesize();
-    setIsDirty(false);
-    setPendingDateChange(null);
-    onClearExternalPendingDate?.();
-    onSelectDate?.(target);
-  };
+  // TRIGGER A (USER ACTION): Flip Page transitions to State C and immediately executes synthesis
+  const handleFlipPageClick = useCallback(async () => {
+    setPreviousCanvasMode(canvasMode === 'chat' ? 'chat' : 'raw');
+    setCanvasMode('synthesis');
+    setIsSettingsOpen(false);
+    setIsCalendarOpen(false);
+    setIsTagsOpen(false);
+    setIsFlipPageOpen(false);
 
-  // Confirm: Discard unsaved changes and move to target date
-  const handleConfirmDiscardAndMove = () => {
-    const target = targetDateToConfirm;
-    if (!target) return;
-    setIsDirty(false);
-    setPendingDateChange(null);
-    onClearExternalPendingDate?.();
-    onSelectDate?.(target);
-  };
+    // Flush any pending text memory
+    await flushPendingSave();
 
-  // Cancel date navigation, stay on current journal entry
-  const handleCancelDateChange = () => {
-    setPendingDateChange(null);
-    onClearExternalPendingDate?.();
-  };
+    // Trigger centralized synthesis API immediately
+    const contentHtml = editor && !editor.isDestroyed ? editor.getHTML() : entry?.content || '';
+    const titleToSave = currentTitle.trim() || formattedDate;
+    if (onSaveAndSynthesize) {
+      const updatedEntry = await onSaveAndSynthesize({
+        title: titleToSave,
+        content: contentHtml,
+        tags: currentTags,
+        manualTags: manualTags,
+      });
+      if (updatedEntry && updatedEntry.tags) {
+        setCurrentTags(updatedEntry.tags);
+        if (updatedEntry.manualTags) {
+          setManualTags(updatedEntry.manualTags);
+        }
+      }
+    }
+  }, [canvasMode, flushPendingSave, editor, entry?.content, currentTitle, formattedDate, onSaveAndSynthesize, currentTags, manualTags]);
 
   // Keyboard shortcut: Cmd+S / Ctrl+S explicitly triggers save journal
   useEffect(() => {
@@ -588,7 +635,7 @@ export function DailyJournalEditor({
       setCurrentTags(updatedTags);
       setManualTags(updatedManual);
       setNewTagInput('');
-      setIsDirty(true);
+      queueDebouncedSave(undefined, undefined, updatedTags, updatedManual);
     }
   };
 
@@ -597,7 +644,7 @@ export function DailyJournalEditor({
     const updatedManual = manualTags.filter((t) => t.toLowerCase() !== tagToRemove.toLowerCase());
     setCurrentTags(updatedTags);
     setManualTags(updatedManual);
-    setIsDirty(true);
+    queueDebouncedSave(undefined, undefined, updatedTags, updatedManual);
   };
 
   const getContextSnippet = (): string => {
@@ -636,6 +683,31 @@ export function DailyJournalEditor({
     setChatInputText('');
     setIsChatLoading(true);
 
+    // Maintain immediate execution: update messages array in Firestore instantly
+    let activeEntryId = entry?.id;
+    if (user?.uid) {
+      try {
+        if (activeEntryId) {
+          await updateJournalEntry(user.uid, activeEntryId, { messages: newMsgs });
+          if (entry) {
+            onUpdateEntry?.({ ...entry, messages: newMsgs });
+          }
+        } else {
+          const saved = await saveOrUpdateDailyJournal(user.uid, journalDate, {
+            title: currentTitle || formattedDate,
+            content: editor && !editor.isDestroyed ? editor.getHTML() : entry?.content || '',
+            tags: currentTags,
+            manualTags: manualTags,
+          });
+          activeEntryId = saved.id;
+          await updateJournalEntry(user.uid, saved.id, { messages: newMsgs });
+          onUpdateEntry?.({ ...saved, messages: newMsgs });
+        }
+      } catch (chatPersistErr) {
+        console.warn('Immediate chat message persistence notice:', chatPersistErr);
+      }
+    }
+
     try {
       const journalText = editor && !editor.isDestroyed ? editor.getText() : (entry?.content || '').replace(/<[^>]+>/g, ' ');
 
@@ -669,19 +741,10 @@ export function DailyJournalEditor({
       setChatMessages(finalMsgs);
 
       // Persist to Firestore with user boundary validation
-      if (user?.uid) {
-        if (entry?.id) {
-          await updateJournalEntry(user.uid, entry.id, { messages: finalMsgs });
+      if (user?.uid && activeEntryId) {
+        await updateJournalEntry(user.uid, activeEntryId, { messages: finalMsgs });
+        if (entry) {
           onUpdateEntry?.({ ...entry, messages: finalMsgs });
-        } else {
-          const saved = await saveOrUpdateDailyJournal(user.uid, journalDate, {
-            title: currentTitle,
-            content: editor?.getHTML() || entry?.content || '',
-            tags: currentTags,
-            manualTags: manualTags,
-          });
-          await updateJournalEntry(user.uid, saved.id, { messages: finalMsgs });
-          onUpdateEntry?.({ ...saved, messages: finalMsgs });
         }
       }
     } catch (err: any) {
@@ -763,7 +826,7 @@ export function DailyJournalEditor({
                 value={currentTitle}
                 onChange={(e) => {
                   setCurrentTitle(e.target.value);
-                  setIsDirty(true);
+                  queueDebouncedSave(undefined, e.target.value);
                 }}
                 onBlur={() => {
                   if (!currentTitle.trim()) {
@@ -793,9 +856,9 @@ export function DailyJournalEditor({
               ) : (
                 <span>Daily reflection entry</span>
               )}
-              {isDirty && (
-                <span className="inline-flex items-center gap-1 text-amber-700 text-[11px]">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> Unsaved changes
+              {isDebouncePending && (
+                <span className="inline-flex items-center gap-1 text-[#7A7E76] text-[11px]">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#A3A89F] animate-pulse" /> Auto-saving in 3s...
                 </span>
               )}
             </div>
@@ -862,14 +925,7 @@ export function DailyJournalEditor({
             <div className="relative">
               <button
                 id="btn-journal-flip-page"
-                onClick={() => {
-                  setPreviousCanvasMode('raw');
-                  setCanvasMode('synthesis');
-                  setIsSettingsOpen(false);
-                  setIsCalendarOpen(false);
-                  setIsTagsOpen(false);
-                  setIsFlipPageOpen(false);
-                }}
+                onClick={handleFlipPageClick}
                 title="Flip to Synthesis Canvas (State C)"
                 className="p-2 rounded-lg transition-colors cursor-pointer hover:bg-[#EAE7DF]/70 hover:text-[#1A1C18]"
               >
@@ -1479,10 +1535,7 @@ export function DailyJournalEditor({
           {/* Flip Page Icon: Routes directly to State C */}
           <button
             id="btn-journal-flip-page-from-chat"
-            onClick={() => {
-              setPreviousCanvasMode('chat');
-              setCanvasMode('synthesis');
-            }}
+            onClick={handleFlipPageClick}
             title="Flip to Synthesis Canvas (State C)"
             className="p-2 rounded-lg text-[#5A6057] hover:bg-[#EAE7DF]/70 hover:text-[#1A1C18] transition-colors cursor-pointer"
           >
@@ -1935,74 +1988,6 @@ export function DailyJournalEditor({
     </motion.div>
   )}
 </AnimatePresence>
-      {/* Unsaved Changes Date Navigation Warning Modal */}
-      {targetDateToConfirm && (
-        <div
-          id="unsaved-changes-modal-backdrop"
-          className="fixed inset-0 z-50 bg-black/45 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
-        >
-          <div
-            id="unsaved-changes-modal"
-            className="bg-white rounded-2xl border border-[#E5E7E2] max-w-md w-full p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-150"
-          >
-            <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-700 shrink-0">
-                <AlertTriangle className="w-5 h-5" />
-              </div>
-              <div className="flex-1">
-                <h3 className="text-base font-semibold text-[#1A1C18]">Unsaved Changes</h3>
-                <p className="text-xs text-[#6F746C] mt-1 leading-relaxed">
-                  Your changes are not saved. Moving to <span className="font-semibold text-[#1A1C18]">{formatJournalDate(targetDateToConfirm)}</span> will discard your unsaved reflections.
-                </p>
-              </div>
-            </div>
-
-            <div className="bg-[#FAF8F5] border border-[#EAE7DF] rounded-xl p-3 text-xs text-[#5A6057] space-y-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-[#8F948C]">Current Entry:</span>
-                <span className="font-medium text-[#252723]">{currentTitle || formattedDate}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-[#8F948C]">Destination Date:</span>
-                <span className="font-medium text-[#2F4133]">{formatJournalDate(targetDateToConfirm)}</span>
-              </div>
-            </div>
-
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-2 border-t border-[#F0EFEA]">
-              <button
-                id="btn-unsaved-keep-editing"
-                type="button"
-                onClick={handleCancelDateChange}
-                className="px-3 py-2 text-xs font-medium text-[#5A6057] hover:text-[#1A1C18] hover:bg-[#F3F4EF] rounded-lg transition-colors cursor-pointer text-center"
-              >
-                Keep Editing
-              </button>
-              <button
-                id="btn-unsaved-discard"
-                type="button"
-                onClick={handleConfirmDiscardAndMove}
-                className="px-3 py-2 text-xs font-medium text-red-700 hover:bg-red-50 rounded-lg transition-colors cursor-pointer text-center"
-              >
-                Discard Changes
-              </button>
-              <button
-                id="btn-unsaved-save-and-reflect"
-                type="button"
-                disabled={saveStatus === 'saving' || isSynthesizing}
-                onClick={handleConfirmSaveAndReflect}
-                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-medium bg-[#2F4133] text-white hover:bg-[#202E24] rounded-lg transition-colors cursor-pointer shadow-xs disabled:opacity-60 text-center"
-              >
-                {isSynthesizing ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-200" />
-                ) : (
-                  <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                )}
-                <span>Save and Reflect</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
