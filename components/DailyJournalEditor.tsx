@@ -903,8 +903,8 @@ export function DailyJournalEditor({
               </button>
             </div>
 
-            {/* 1. Settings Gear Icon */}
-            <div className="relative">
+            {/* 1. Settings Gear Icon (Hidden from UI) */}
+            <div className="hidden">
               <button
                 id="btn-journal-settings"
                 onClick={() => {
@@ -1431,24 +1431,7 @@ export function DailyJournalEditor({
         )}
       </div>
 
-      {/* Bottom Right Sparkle Icon (Navigates directly to State C Central Synthesis Canvas) */}
-      <div className="fixed bottom-6 right-6 sm:bottom-8 sm:right-8 z-30">
-        <button
-          id="btn-sparkle-reflection"
-          onClick={() => {
-            setPreviousCanvasMode('raw');
-            setCanvasMode('synthesis');
-          }}
-          title="Open Synthesis Canvas (State C)"
-          className="w-10 h-10 rounded-full flex items-center justify-center transition-all cursor-pointer shadow-xs bg-[#F7F5F0] hover:bg-[#EAE7DF] text-[#6F8273] hover:text-[#1A1C18] border border-[#E0DCD4]"
-        >
-          <Sparkles
-            className={`w-4 h-4 transition-transform ${
-              isSynthesizing ? 'animate-spin text-amber-600' : ''
-            }`}
-          />
-        </button>
-      </div>
+
     </motion.div>
   )}
 
@@ -1841,11 +1824,11 @@ export function DailyJournalEditor({
           </div>
         ) : (
           <div className="space-y-12">
-            {/* KEY 1: Executive Summary / Core Digest */}
-            <section id="synthesis-key-1-core-digest" className="space-y-3">
+            {/* Executive Summary / Core Digest (Hidden from UI) */}
+            <section id="synthesis-key-1-core-digest" className="hidden">
               <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-[#6F8273] font-semibold">
                 <Quote className="w-3.5 h-3.5" />
-                <span>Key 1: Core Digest</span>
+                <span>Core Digest</span>
               </div>
               <div className="pl-4 sm:pl-6 border-l-2 border-[#6F8273] py-1">
                 <p className="text-lg sm:text-xl font-serif italic text-[#1A1C18] leading-relaxed">
@@ -1854,22 +1837,22 @@ export function DailyJournalEditor({
               </div>
             </section>
 
-            {/* KEY 2: Reflective Synthesis */}
+            {/* Reflective Synthesis */}
             <section id="synthesis-key-2-reflective-synthesis" className="space-y-3">
               <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-[#6F8273] font-semibold">
                 <Sparkles className="w-3.5 h-3.5" />
-                <span>Key 2: Reflective Synthesis</span>
+                <span>Reflective Synthesis</span>
               </div>
               <div className="prose prose-stone max-w-none text-[#2B3028] font-serif leading-relaxed text-base whitespace-pre-line">
                 {entry?.synthesis || 'Synthesis in progress...'}
               </div>
             </section>
 
-            {/* KEY 3: Synthesized Key Insights & Takeaways */}
+            {/* Synthesized Key Insights & Takeaways */}
             <section id="synthesis-key-3-insights" className="space-y-4">
               <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-[#6F8273] font-semibold">
                 <Sparkles className="w-3.5 h-3.5" />
-                <span>Key 3: Key Insights &amp; Takeaways</span>
+                <span>Key Insights &amp; Takeaways</span>
               </div>
               {entry?.keyInsights && entry.keyInsights.length > 0 ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

@@ -1,17 +1,16 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { JournalEntry } from '@/lib/types';
 import {
   Search,
   Trash2,
   Calendar,
   X,
-  Plus,
   ChevronRight,
   PanelLeftClose,
 } from 'lucide-react';
-import { formatJournalDate, getLocalCalendarDate, formatSidebarDate } from '@/lib/utils';
+import { formatJournalDate, getLocalCalendarDate, formatSidebarDate, addDaysToDate } from '@/lib/utils';
 
 interface SidebarProps {
   entries: JournalEntry[];
@@ -36,13 +35,30 @@ export function Sidebar({
 }: SidebarProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [entryToDelete, setEntryToDelete] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [jumpDate, setJumpDate] = useState('');
 
+  const calendarPopoverRef = useRef<HTMLDivElement>(null);
   const todayStr = getLocalCalendarDate();
 
-  // Distinct dates sorted descending
+  // Close calendar popover on outside click
+  useEffect(() => {
+    if (!isCalendarOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        calendarPopoverRef.current &&
+        !calendarPopoverRef.current.contains(e.target as Node)
+      ) {
+        setIsCalendarOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isCalendarOpen]);
+
+  // Distinct dates sorted descending (future dates kept disabled and excluded)
   const dateList = useMemo(() => {
     const datesMap = new Map<string, JournalEntry>();
 
@@ -58,16 +74,16 @@ export function Sidebar({
       } as JournalEntry);
     }
 
-    // Include all entries
+    // Include all entries (strictly exclude future dates)
     entries.forEach((entry) => {
       const dateKey = entry.journalDate || entry.createdAt.split('T')[0];
-      if (dateKey) {
+      if (dateKey && dateKey <= todayStr) {
         datesMap.set(dateKey, entry);
       }
     });
 
-    // Make sure active date is in the map
-    if (activeJournalDate && !datesMap.has(activeJournalDate)) {
+    // Make sure active date is in the map if valid (<= todayStr)
+    if (activeJournalDate && activeJournalDate <= todayStr && !datesMap.has(activeJournalDate)) {
       datesMap.set(activeJournalDate, {
         id: `placeholder-${activeJournalDate}`,
         journalDate: activeJournalDate,
@@ -186,16 +202,7 @@ export function Sidebar({
               />
             </form>
 
-            <button
-              onClick={() => {
-                onSelectDate(todayStr);
-                onCloseMobile();
-              }}
-              title="Write Today"
-              className="p-1 rounded hover:bg-[#EBE8E2] text-[#737872] hover:text-[#252723] cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-            </button>
+
 
             {onToggleCollapse && (
               <button
