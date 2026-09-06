@@ -12,7 +12,6 @@ import {
   ArrowRight,
   Search,
   BookOpen,
-  Heart,
   Lightbulb,
 } from 'lucide-react';
 
@@ -98,30 +97,6 @@ export function PersonalPatterns({
     });
 
     return insights;
-  }, [entries]);
-
-  // 4. Extract Memory Echoes & Observations
-  const observationsList = useMemo(() => {
-    const list: Array<{
-      observation: string;
-      dateStr: string;
-      entryTitle: string;
-    }> = [];
-
-    entries.forEach((entry) => {
-      const dStr = entry.journalDate || (entry.createdAt ? entry.createdAt.split('T')[0] : '');
-      if (entry.observations && Array.isArray(entry.observations)) {
-        entry.observations.forEach((obs) => {
-          list.push({
-            observation: obs,
-            dateStr: dStr,
-            entryTitle: entry.title || formatJournalDate(dStr),
-          });
-        });
-      }
-    });
-
-    return list;
   }, [entries]);
 
   // Filtered insights based on active tag or search
@@ -334,33 +309,6 @@ export function PersonalPatterns({
             </div>
           )}
         </div>
-
-        {/* Cognitive & Emotional Observations */}
-        {observationsList.length > 0 && (
-          <div className="space-y-3 pt-2">
-            <h2 className="text-base font-serif font-medium text-[#1A1C18] flex items-center gap-2">
-              <Heart className="w-4 h-4 text-[#6F8273]" />
-              <span>Observed Shifts in Energy & Tone</span>
-            </h2>
-
-            <div className="p-5 rounded-xl bg-white border border-[#E5E7E2] divide-y divide-[#F3F4EF]">
-              {observationsList.slice(0, 5).map((obs, idx) => (
-                <div
-                  key={idx}
-                  onClick={() => onSelectEntryDate(obs.dateStr)}
-                  className="py-3 first:pt-0 last:pb-0 flex items-baseline justify-between gap-4 cursor-pointer hover:bg-[#FAFAF7] px-2 rounded-lg transition-colors"
-                >
-                  <p className="text-xs text-[#4A5048] leading-relaxed">
-                    {obs.observation}
-                  </p>
-                  <span className="text-[10px] text-[#737872] whitespace-nowrap font-serif italic shrink-0">
-                    {formatJournalDate(obs.dateStr)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
 
         {/* Bottom invitation card */}
         <div className="p-6 rounded-2xl bg-[#E8EFE9]/60 border border-[#DCE8DE] flex flex-col sm:flex-row items-center justify-between gap-4">

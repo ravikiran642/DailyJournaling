@@ -33,9 +33,8 @@ export interface JournalEntry {
   journalDate?: string; // Local calendar date in YYYY-MM-DD
   isDailyPrimary?: boolean; // True if this is the primary reflection for the calendar day
   summary?: string;
-  synthesis?: string; // AI-generated reflective synthesis exploring developments, tensions, and observations
+  synthesis?: string; // AI-generated reflective synthesis exploring developments, tensions, and realizations
   keyInsights?: string[];
-  observations?: string[]; // Emotional/contextual observations grounded strictly in text
   tags: string[];
   manualTags?: string[]; // Tags manually created/flagged by the user that must not be overwritten during AI synthesis
   messages?: ChatMessage[];

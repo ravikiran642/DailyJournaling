@@ -222,7 +222,6 @@ export function JournalDashboard() {
         synthesis: data.synthesis || '',
         summary: data.summary || '',
         keyInsights: data.keyInsights || [],
-        observations: data.observations || [],
         tags: combinedTags.length > 0 ? combinedTags : ['Daily'],
         manualTags: currentManualTags,
       };

@@ -25,7 +25,6 @@
         "summary": { "type": "string", "description": "AI-generated executive summary or takeaway" },
         "synthesis": { "type": "string", "description": "AI-generated reflective synthesis" },
         "keyInsights": { "type": "array", "description": "List of key takeaways" },
-        "observations": { "type": "array", "description": "Emotional and contextual observations" },
         "tags": { "type": "array", "description": "Tags/categories for entry" },
         "messages": { "type": "array", "description": "Multi-turn interaction messages [{role, content, timestamp}]" },
         "embedding": { "type": "array", "description": "Vector embedding of entry summary/themes for semantic Echo retrieval" },

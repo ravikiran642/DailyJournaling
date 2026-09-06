@@ -55,32 +55,28 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const prompt = `You are a quiet, thoughtful, and perceptive reflective journal companion.
-Analyze the following personal daily journal reflection written by the user.
+const prompt = `You are the backend metadata engine for a highly private, minimalist journaling application with a long-term historical tracking memory.
+Analyze the following personal daily journal text and accompanying reflection chat. 
 
-Your goal is to generate a grounded reflective synthesis that helps the user understand what they wrote and how their thinking developed across this reflection.
-
-Guidelines:
-1. The synthesis should NOT simply be a generic summary. Help the user trace their internal narrative, realizations, and developing thoughts.
-2. Highlight emotional or contextual observations strictly grounded in the user's actual words.
-3. Note any subtle shifts, tensions, contradictions, or breakthroughs in their thinking.
-4. DO NOT diagnose the user or make unsupported psychological, medical, or clinical claims.
-5. DO NOT invent facts, people, or events not present in the journal.
-6. Tone must be warm, calm, objective, and respectful.
+Your objective is to extract structured, grounded insights to map the user's personal development over time. This data will be used to power a historical "Echo" feature that alerts users when current situations mirror past events. Strictly avoid any clinical diagnosis or invented facts.
 
 Return ONLY valid JSON with this exact structure:
 {
-  "title": "A short, evocative 3-6 word title capturing the core spirit of this reflection",
-  "summary": "A concise 2-3 sentence executive summary of what was written and realized",
-  "synthesis": "A rich 2-3 paragraph reflective synthesis exploring how the user's perspective unfolded, noting grounded emotional and contextual observations, and identifying subtle shifts or tensions in their thinking",
-  "keyInsights": ["3 to 4 concise bullet points highlighting meaningful observations or takeaways grounded in the text"],
-  "observations": ["2 to 3 grounded observations on emotional tone, cognitive perspective, or recurring threads"],
-  "tags": ["3 to 5 relevant thematic tags, e.g. Clarity, Family, Work, Mindfulness, Transition"]
+  "title": "A short, evocative 3-6 word title capturing the core emotional spirit of this day.",
+  
+  "summary": "A concise, highly factual 2-3 sentence overview of the concrete events, people, and topics discussed (e.g., specific names, projects, or distinct occurrences). This is hidden from the user and used solely for background historical pattern matching.",
+  
+  "synthesis": "A rich, warm 2-paragraph narrative tracing the user's internal realizations and shifts in perspective. This must not simply parrot back what happened, but capture how their internal thinking unfolded.",
+  
+  "keyInsights": ["3 specific, distinct observations regarding the user's emotional tone, cognitive perspective, or recurring behavioral patterns grounded purely in the text."],
+  
+  "tags": ["3 to 5 lowercase thematic tags (e.g., career, relationship, boundaries, anxiety, growth) for database charting."]
 }
 
 ${journalDate ? `Journal Date: ${journalDate}\n` : ''}
-Journal Reflection Text:
+Journal Entry & Reflection Chat Text:
 ${journalText}`;
+
 
     const { text, modelUsed } = await generateContentWithFallback({
       contents: prompt,
@@ -97,7 +93,6 @@ ${journalText}`;
         summary: parsed.summary || 'Summary unavailable.',
         synthesis: parsed.synthesis || parsed.summary || '',
         keyInsights: Array.isArray(parsed.keyInsights) ? parsed.keyInsights : [],
-        observations: Array.isArray(parsed.observations) ? parsed.observations : [],
         tags: Array.isArray(parsed.tags) ? parsed.tags : ['Daily'],
         modelUsed,
       });
@@ -108,7 +103,6 @@ ${journalText}`;
         summary: text.slice(0, 300),
         synthesis: text,
         keyInsights: [],
-        observations: [],
         tags: ['Daily'],
         modelUsed,
       });

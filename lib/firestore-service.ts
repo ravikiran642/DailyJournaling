@@ -64,7 +64,6 @@ export async function saveJournalEntry(
     tags: entry.tags || [],
     messages: entry.messages || [],
     keyInsights: entry.keyInsights || [],
-    observations: entry.observations || [],
     content: entry.content || '',
     isDailyPrimary: entry.isDailyPrimary ?? false,
     journalDate: entry.journalDate,
@@ -108,7 +107,6 @@ export async function saveOrUpdateDailyJournal(
     summary?: string;
     synthesis?: string;
     keyInsights?: string[];
-    observations?: string[];
     tags?: string[];
     manualTags?: string[];
   }
@@ -141,7 +139,6 @@ export async function saveOrUpdateDailyJournal(
       ...(data.summary !== undefined ? { summary: data.summary } : {}),
       ...(data.synthesis !== undefined ? { synthesis: data.synthesis } : {}),
       ...(data.keyInsights !== undefined ? { keyInsights: data.keyInsights } : {}),
-      ...(data.observations !== undefined ? { observations: data.observations } : {}),
       ...(data.tags !== undefined ? { tags: data.tags } : {}),
       ...(data.manualTags !== undefined ? { manualTags: data.manualTags } : {}),
     };
@@ -162,7 +159,6 @@ export async function saveOrUpdateDailyJournal(
       summary: data.summary,
       synthesis: data.synthesis,
       keyInsights: data.keyInsights || [],
-      observations: data.observations || [],
       tags: data.tags && data.tags.length > 0 ? data.tags : ['Daily'],
       manualTags: data.manualTags || [],
       messages: [],

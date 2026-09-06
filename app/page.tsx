@@ -1,19 +1,10 @@
 'use client';
 
 import React, { useSyncExternalStore } from 'react';
-import dynamic from 'next/dynamic';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
+import { LandingView } from '@/components/LandingView';
+import { JournalDashboard } from '@/components/JournalDashboard';
 import { Sparkles } from 'lucide-react';
-
-const LandingView = dynamic(
-  () => import('@/components/LandingView').then((m) => m.LandingView),
-  { ssr: false }
-);
-
-const JournalDashboard = dynamic(
-  () => import('@/components/JournalDashboard').then((m) => m.JournalDashboard),
-  { ssr: false }
-);
 
 const emptySubscribe = () => () => {};
 

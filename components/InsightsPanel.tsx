@@ -56,14 +56,6 @@ export function InsightsPanel({
       md += `\n`;
     }
 
-    if (entry.observations && entry.observations.length > 0) {
-      md += `## Grounded Observations & Shifts\n`;
-      entry.observations.forEach((obs) => {
-        md += `- ${obs}\n`;
-      });
-      md += `\n`;
-    }
-
     if (entry.tags && entry.tags.length > 0) {
       md += `**Tags:** ${entry.tags.join(', ')}\n\n`;
     }
@@ -171,25 +163,6 @@ export function InsightsPanel({
             </h4>
             <div className="p-4 bg-white border border-[#E5E7E2] rounded-2xl text-xs font-serif text-[#252723] leading-relaxed shadow-xs whitespace-pre-line">
               {entry.synthesis}
-            </div>
-          </div>
-        )}
-
-        {/* Grounded Observations */}
-        {entry.observations && entry.observations.length > 0 && (
-          <div id="grounded-observations-card" className="space-y-2">
-            <h4 className="text-[11px] font-semibold uppercase tracking-wider text-[#737872] flex items-center gap-1.5">
-              <span>Observations &amp; Thinking Shifts</span>
-            </h4>
-            <div className="space-y-2">
-              {entry.observations.map((obs, idx) => (
-                <div
-                  key={idx}
-                  className="p-3 bg-[#F8FAF7] border border-[#E5E7E2] rounded-xl text-xs font-serif text-[#373A34] leading-relaxed"
-                >
-                  &bull; {obs}
-                </div>
-              ))}
             </div>
           </div>
         )}
