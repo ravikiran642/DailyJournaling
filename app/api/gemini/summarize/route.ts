@@ -72,14 +72,14 @@ Your objective is to extract structured, grounded insights to map the user's per
 Return ONLY valid JSON with this exact structure:
 {
   "title": "A short, evocative 3-6 word title capturing the core emotional spirit and theme of this day.",
-  "summary": "A concise, highly factual 2-3 sentence executive digest of the concrete events, people, and topics discussed. Used for pattern matching.",
-  "synthesis": "A rich, warm 2-paragraph narrative tracing the user's internal realizations and shifts in perspective across their writing and chat reflection.",
+  "summary": "A concise, highly factual 2-3 sentence executive digest of the concrete events, people, and topics discussed (e.g., specific names, projects, or distinct occurrences). This is hidden from the user and used solely for background historical pattern matching.",
+  "synthesis": "A rich, warm 2-paragraph narrative tracing the user's internal realizations and shifts in perspective. This must not simply parrot back what happened, but capture how their internal thinking unfolded.",
   "keyInsights": [
     "Observation 1 regarding emotional tone, cognitive perspective, or recurring pattern grounded purely in the text.",
     "Observation 2 regarding tensions, breakthroughs, or questions explored.",
     "Observation 3 regarding growth or forward-looking perspective."
   ],
-  "tags": ["3 to 5 lowercase thematic tags (e.g., career, boundaries, anxiety, family, resilience, growth)."]
+  "tags": ["3 to 5 lowercase thematic tags (e.g., career, relationship, boundaries, anxiety, family, resilience, growth)."]
 }
 
 ${journalDate ? `Journal Date: ${journalDate}\n` : ''}
