@@ -363,16 +363,6 @@ export function DailyJournalEditor({
 
       try {
         const lastSentence = extractLastSentence(trimmed);
-        const historicalPayload = (allEntries || []).slice(0, 8).map((e) => ({
-          id: e.id,
-          title: e.title,
-          journalDate: e.journalDate,
-          date: e.createdAt ? e.createdAt.split('T')[0] : undefined,
-          summary: e.summary,
-          tags: e.tags,
-          keyInsights: e.keyInsights,
-          initialPrompt: e.initialPrompt,
-        }));
 
         const res = await fetch('/api/gemini/silent-guide', {
           method: 'POST',
@@ -383,14 +373,13 @@ export function DailyJournalEditor({
             currentText: trimmed,
             lastSentence,
             journalDate,
-            historicalEntries: historicalPayload,
           }),
         });
 
         if (res.ok) {
           const data = await res.json();
           if (Array.isArray(data.suggestions) && data.suggestions.length > 0) {
-            setDynamicSuggestions(data.suggestions);
+            setDynamicSuggestions(data.suggestions.slice(0, 2));
             setSuggestionTone(data.detectedTone || null);
           }
         }
@@ -400,7 +389,7 @@ export function DailyJournalEditor({
         setIsGeneratingSuggestions(false);
       }
     },
-    [allEntries, dynamicSuggestions.length, journalDate, lastAnalyzedText]
+    [dynamicSuggestions.length, journalDate, lastAnalyzedText]
   );
 
   // Trigger stall state and pre-warm dynamic contextual suggestions
@@ -420,14 +409,21 @@ export function DailyJournalEditor({
     triggerStallRef.current = triggerStall;
   }, [triggerStall]);
 
-  // Clean up idle timer on unmount
+  // Clean up idle stall timer on unmount and when transitioning canvas modes (away from State A)
   useEffect(() => {
+    if (canvasMode !== 'raw') {
+      if (stallTimerRef.current) {
+        clearTimeout(stallTimerRef.current);
+        stallTimerRef.current = null;
+      }
+    }
     return () => {
       if (stallTimerRef.current) {
         clearTimeout(stallTimerRef.current);
+        stallTimerRef.current = null;
       }
     };
-  }, []);
+  }, [canvasMode]);
 
   // Dismiss floating micro-menu on outside click
   useEffect(() => {
@@ -472,13 +468,6 @@ export function DailyJournalEditor({
       badge: 'Past Echo',
       prompt: historicalSuggestion,
       rationale: 'Reconnects present thought with prior memory.',
-    },
-    {
-      category: 'mood_curveball',
-      label: 'Mood-Shifting Curveball',
-      badge: 'Disrupt Loop',
-      prompt: curveballSuggestion,
-      rationale: 'Shatters cognitive loops with unexpected sensory shift.',
     },
     {
       category: 'zero_pressure_dump',
