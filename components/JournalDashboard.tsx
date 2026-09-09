@@ -18,7 +18,8 @@ import { Navbar } from './Navbar';
 import { Sidebar } from './Sidebar';
 import { DailyJournalEditor } from './DailyJournalEditor';
 import { PersonalPatterns } from './PersonalPatterns';
-import { AlertCircle, X, Menu } from 'lucide-react';
+import { Menu } from 'lucide-react';
+import ErrorToast from './ErrorToast';
 
 export function JournalDashboard() {
   const { user } = useAuth();
@@ -62,6 +63,7 @@ export function JournalDashboard() {
             console.warn('Historical embeddings sync notice:', err);
           });
         }
+        
       },
       (err) => {
         console.error('Realtime Firestore subscription error:', err);
@@ -354,23 +356,7 @@ export function JournalDashboard() {
       />
 
       {/* Global Error Toast */}
-      {errorMessage && (
-        <div
-          id="global-error-toast"
-          className="bg-red-50 border-b border-red-200 text-red-800 px-4 py-2 text-xs flex items-center justify-between z-30 shrink-0"
-        >
-          <div className="flex items-center gap-2">
-            <AlertCircle className="w-3.5 h-3.5 text-red-600 shrink-0" />
-            <span>{errorMessage}</span>
-          </div>
-          <button
-            onClick={() => setErrorMessage(null)}
-            className="text-red-600 hover:text-red-900 p-1 cursor-pointer"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
+      {errorMessage && <ErrorToast errorMessage={errorMessage} onDismiss={() => setErrorMessage(null)} />}
 
       {/* Main Content Area */}
       <div id="journal-main-layout" className="flex-1 flex overflow-hidden relative">

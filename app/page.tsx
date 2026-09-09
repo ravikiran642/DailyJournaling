@@ -43,7 +43,6 @@ function AppContent() {
 
   return <JournalDashboard />;
 }
-
 export default function HomePage() {
   return (
     <AuthProvider>
